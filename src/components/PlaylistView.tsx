@@ -173,7 +173,7 @@ export function PlaylistView({
                       setSelectedPlaylistId(null);
                     }
                   }}
-                  className="p-2.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/60 hover:text-rose-400 border border-white/10 cursor-pointer transition-colors"
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/60 hover:text-rose-400 border border-white/10 cursor-pointer transition-colors active:scale-95 shrink-0"
                   title="Hapus Playlist"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -274,18 +274,18 @@ export function PlaylistView({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-1.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onToggleFavorite(track.id);
                         }}
-                        className="p-2 text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                        className="w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors active:scale-95"
                         title={track.isFavorite ? 'Hapus dari Favorit' : 'Tambah ke Favorit'}
                       >
                         <Heart
-                          className={`w-3.5 h-3.5 ${
-                            track.isFavorite ? 'fill-rose-500 text-rose-500' : ''
+                          className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform ${
+                            track.isFavorite ? 'fill-rose-500 text-rose-500 scale-110' : ''
                           }`}
                         />
                       </button>
@@ -296,10 +296,10 @@ export function PlaylistView({
                           e.stopPropagation();
                           onRemoveTrackFromPlaylist(selectedPlaylist.id, track.id);
                         }}
-                        className="p-2 text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-rose-500/15 border border-white/10 hover:border-rose-500/30 transition-colors"
+                        className="w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 transition-colors active:scale-95"
                         title="Hapus dari Playlist"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </button>
                     </div>
                   </div>

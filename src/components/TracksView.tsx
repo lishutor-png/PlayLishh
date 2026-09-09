@@ -88,47 +88,56 @@ export function TracksView({
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 max-w-2xl mx-auto w-full pb-32">
-      {/* Brand Hero Card with Elegant Play Logo */}
-      <div className="p-4 rounded-3xl bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent border border-white/10 shadow-xl backdrop-blur-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-[#F27D26]/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="flex items-center justify-between gap-3 relative z-10">
+      {/* Brand Hero Card with Adaptive Button Arrangement */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent border border-white/10 shadow-xl backdrop-blur-2xl relative overflow-hidden flex flex-col gap-3.5">
+        <div className="absolute top-0 right-0 w-36 h-36 bg-[#F27D26]/10 rounded-full blur-2xl pointer-events-none" />
+        
+        {/* Top Row: App Logo & Track Counter Badge */}
+        <div className="flex items-center justify-between relative z-10">
           <AppLogo size="lg" variant="full" isPlaying={isPlaying} />
-          <div className="flex items-center gap-2">
-            {tracks.length > 1 && (
-              isShuffleActive && onDisableShuffle ? (
-                <button
-                  id="btn-stop-shuffle-hero"
-                  onClick={onDisableShuffle}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs border border-rose-500/40 cursor-pointer shadow-md transition-all active:scale-95"
-                  title="Hentikan Mode Acak (Kembali ke Urutan Normal)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-                  <span className="hidden sm:inline">Hentikan Acak</span>
-                  <span className="sm:hidden">Batal Acak</span>
-                </button>
-              ) : onShufflePlayAll ? (
-                <button
-                  id="btn-shuffle-all-hero"
-                  onClick={() => onShufflePlayAll(filteredTracks.length > 0 ? filteredTracks : tracks)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
-                  title="Putar Acak Semua Lagu"
-                >
-                  <Shuffle className="w-3.5 h-3.5 text-[#F27D26]" />
-                  <span className="hidden sm:inline">Putar Acak</span>
-                  <span className="sm:hidden">Acak</span>
-                </button>
-              ) : null
-            )}
-            <button
-              id="btn-import-hero"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95 shrink-0"
-              title="Impor Audio dari Perangkat"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Impor Audio</span>
-            </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-mono font-semibold text-white/60 bg-white/5 px-2.5 py-1 rounded-xl border border-white/10">
+              {tracks.length} Lagu
+            </span>
           </div>
+        </div>
+
+        {/* Action Buttons Row: Big, Ergonomic & Thumb-friendly */}
+        <div className="grid grid-cols-2 sm:flex sm:items-center sm:justify-end gap-2 relative z-10 pt-1 border-t border-white/5">
+          {tracks.length > 1 && (
+            isShuffleActive && onDisableShuffle ? (
+              <button
+                id="btn-stop-shuffle-hero"
+                onClick={onDisableShuffle}
+                className="col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs border border-rose-500/40 cursor-pointer shadow-md transition-all active:scale-95"
+                title="Hentikan Mode Acak (Kembali ke Urutan Normal)"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
+                <span>Hentikan Acak</span>
+              </button>
+            ) : onShufflePlayAll ? (
+              <button
+                id="btn-shuffle-all-hero"
+                onClick={() => onShufflePlayAll(filteredTracks.length > 0 ? filteredTracks : tracks)}
+                className="col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
+                title="Putar Acak Semua Lagu"
+              >
+                <Shuffle className="w-3.5 h-3.5 text-[#F27D26]" />
+                <span>Putar Acak</span>
+              </button>
+            ) : null
+          )}
+          <button
+            id="btn-import-hero"
+            onClick={() => fileInputRef.current?.click()}
+            className={`${
+              tracks.length > 1 ? 'col-span-1 sm:flex-none' : 'col-span-2 sm:flex-none'
+            } flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95`}
+            title="Impor Audio dari Perangkat"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Impor Audio</span>
+          </button>
         </div>
       </div>
 
@@ -310,18 +319,18 @@ export function TracksView({
                 </div>
 
                 {/* Actions: Favorite, Add to Playlist & Delete with High Visibility */}
-                <div className="flex items-center gap-1 shrink-0 ml-1">
+                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-1.5">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleFavorite(track.id);
                     }}
-                    className="p-2 text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                    className="w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors active:scale-95"
                     title={track.isFavorite ? 'Hapus dari Favorit' : 'Tambah ke Favorit'}
                   >
                     <Heart
-                      className={`w-3.5 h-3.5 ${
-                        track.isFavorite ? 'fill-rose-500 text-rose-500' : ''
+                      className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform ${
+                        track.isFavorite ? 'fill-rose-500 text-rose-500 scale-110' : ''
                       }`}
                     />
                   </button>
@@ -331,10 +340,10 @@ export function TracksView({
                       e.stopPropagation();
                       setTargetTrackForPlaylist(track);
                     }}
-                    className="p-2 text-white/60 hover:text-[#F27D26] cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                    className="w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center text-white/60 hover:text-[#F27D26] cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors active:scale-95"
                     title="Tambah ke PlayLish"
                   >
-                    <ListPlus className="w-3.5 h-3.5" />
+                    <ListPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
 
                   <button
@@ -342,10 +351,10 @@ export function TracksView({
                       e.stopPropagation();
                       setTrackToDelete(track);
                     }}
-                    className="p-2 text-white/60 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-rose-500/15 border border-white/10 hover:border-rose-500/30 transition-colors"
+                    className="w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center text-white/50 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/30 transition-colors active:scale-95"
                     title="Hapus Lagu dari Penyimpanan"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                 </div>
               </div>

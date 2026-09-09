@@ -11,6 +11,11 @@ import {
   HardDrive,
   Heart,
   RefreshCw,
+  Shuffle,
+  Repeat,
+  Repeat1,
+  Radio,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { AudioSettings, SleepTimerConfig } from '../types';
 import { audioEngine } from '../services/audioEngine';
@@ -74,6 +79,112 @@ export function SettingsView({
             Hi-Res Lossless
           </span>
           <span className="block text-white/40">v1.2.0 • Android Audio</span>
+        </div>
+      </div>
+
+      {/* Auto-Save Persistence Status */}
+      <div className="px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2 text-emerald-400 font-medium">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          <span>Pengaturan Tersimpan Otomatis</span>
+        </div>
+        <span className="text-[10px] text-emerald-300/70 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-lg">
+          Tetap Tersimpan Saat Keluar
+        </span>
+      </div>
+
+      {/* SECTION: PLAYBACK & QUEUE PREFERENCES */}
+      <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400">
+            <SlidersHorizontal className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-white">Preferensi Pemutaran</h2>
+            <p className="text-xs text-white/50">
+              Mode pengulangan, putar acak, dan perilaku antrean tersimpan permanen
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 pt-3 border-t border-white/10">
+          {/* Repeat Mode Selection */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/70 font-medium flex items-center gap-1.5">
+                <Repeat className="w-3.5 h-3.5 text-[#F27D26]" />
+                Mode Pengulangan (Repeat):
+              </span>
+              <span className="font-mono text-[11px] text-[#F27D26]">
+                {settings.repeatMode === 'all'
+                  ? 'Ulangi Semua Lagu'
+                  : settings.repeatMode === 'one'
+                  ? 'Ulangi 1 Lagu'
+                  : 'Tidak Mengulang'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ repeatMode: 'all' })}
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                  settings.repeatMode === 'all'
+                    ? 'bg-[#F27D26]/20 border-[#F27D26] text-[#F27D26] font-bold ring-1 ring-[#F27D26]/40'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Repeat className="w-3.5 h-3.5" />
+                Semua
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ repeatMode: 'one' })}
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                  settings.repeatMode === 'one'
+                    ? 'bg-[#F27D26]/20 border-[#F27D26] text-[#F27D26] font-bold ring-1 ring-[#F27D26]/40'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Repeat1 className="w-3.5 h-3.5" />
+                1 Lagu
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ repeatMode: 'off' })}
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                  settings.repeatMode === 'off'
+                    ? 'bg-white/20 border-white/40 text-white font-bold'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                Mati
+              </button>
+            </div>
+          </div>
+
+          {/* Shuffle Mode Toggle */}
+          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+            <div className="flex items-center gap-2 text-xs">
+              <Shuffle className="w-4 h-4 text-emerald-400" />
+              <div>
+                <span className="text-white font-medium block">Putar Acak Lagu (Shuffle)</span>
+                <span className="text-[11px] text-white/45 block">
+                  Urutan lagu diacak secara otomatis saat mulai memutar
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onUpdateSettings({ shuffle: !settings.shuffle })}
+              className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                settings.shuffle
+                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                  : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+              }`}
+            >
+              {settings.shuffle ? 'Aktif' : 'Nonaktif'}
+            </button>
+          </div>
         </div>
       </div>
 

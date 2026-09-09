@@ -149,17 +149,17 @@ export function OfflineView({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
                 <button
                   onClick={() => onPlayTrack(track, offlineTracks)}
-                  className="p-2.5 rounded-xl bg-white/5 hover:bg-emerald-500/20 text-white/60 hover:text-emerald-400 border border-white/10 cursor-pointer transition-colors"
+                  className="w-8.5 h-8.5 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-white/5 hover:bg-emerald-500/20 text-white/60 hover:text-emerald-400 border border-white/10 cursor-pointer transition-colors active:scale-95"
                   title="Putar Lagu"
                 >
-                  <Play className="w-4 h-4 fill-current" />
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
                 </button>
                 <button
                   onClick={() => setTrackToDelete(track)}
-                  className="p-2.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 border border-white/10 cursor-pointer transition-colors"
+                  className="w-8.5 h-8.5 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 border border-white/10 cursor-pointer transition-colors active:scale-95"
                   title="Hapus Lagu dari Penyimpanan"
                 >
                   <Trash2 className="w-4 h-4" />

@@ -385,17 +385,21 @@ export function NowPlayingFull({
           <button
             id="btn-transport-shuffle"
             onClick={onToggleShuffle}
-            className={`p-3 rounded-2xl border cursor-pointer transition-all active:scale-95 ${
+            className={`relative p-3.5 rounded-2xl border cursor-pointer transition-all active:scale-95 ${
               settings.shuffle
-                ? 'text-[#F27D26] bg-[#F27D26]/20 border-[#F27D26]/40 shadow-sm ring-1 ring-[#F27D26]/30'
+                ? 'text-[#F27D26] bg-[#F27D26]/20 border-[#F27D26]/50 shadow-md shadow-[#F27D26]/20 ring-1 ring-[#F27D26]/40'
                 : 'text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
             }`}
             title={settings.shuffle ? 'Putar Acak Aktif (Klik untuk Hentikan)' : 'Aktifkan Putar Acak'}
           >
             <Shuffle className="w-5 h-5" />
+            {settings.shuffle && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#F27D26] shadow-[0_0_8px_#F27D26]" />
+            )}
           </button>
 
           <button
+            id="fullscreen-prev-btn"
             onClick={onPrev}
             className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 cursor-pointer transition-all active:scale-90"
             title="Lagu Sebelumnya"
@@ -425,6 +429,7 @@ export function NowPlayingFull({
           </button>
 
           <button
+            id="fullscreen-next-btn"
             onClick={onNext}
             className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/15 text-white/80 hover:text-white border border-white/10 cursor-pointer transition-all active:scale-90"
             title="Lagu Berikutnya"
@@ -433,18 +438,28 @@ export function NowPlayingFull({
           </button>
 
           <button
+            id="fullscreen-repeat-btn"
             onClick={onToggleRepeat}
-            className={`p-3 rounded-2xl border cursor-pointer transition-all active:scale-95 ${
+            className={`relative p-3.5 rounded-2xl border cursor-pointer transition-all active:scale-95 ${
               settings.repeatMode !== 'off'
-                ? 'text-[#F27D26] bg-[#F27D26]/20 border-[#F27D26]/40 shadow-sm'
+                ? 'text-[#F27D26] bg-[#F27D26]/20 border-[#F27D26]/50 shadow-md shadow-[#F27D26]/20 ring-1 ring-[#F27D26]/40'
                 : 'text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
             }`}
-            title={`Ulangi: ${settings.repeatMode}`}
+            title={`Ulangi: ${
+              settings.repeatMode === 'off'
+                ? 'Mati'
+                : settings.repeatMode === 'all'
+                ? 'Semua Lagu'
+                : 'Satu Lagu'
+            }`}
           >
             {settings.repeatMode === 'one' ? (
               <Repeat1 className="w-5 h-5" />
             ) : (
               <Repeat className="w-5 h-5" />
+            )}
+            {settings.repeatMode !== 'off' && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#F27D26] shadow-[0_0_8px_#F27D26]" />
             )}
           </button>
         </div>

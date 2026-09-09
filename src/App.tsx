@@ -18,6 +18,9 @@ import {
   loadSettings,
   saveSettings,
   getTrackBlob,
+  getLocalStoredSettings,
+  getStoredLastTrackId,
+  saveStoredLastTrackId,
 } from './services/db';
 import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
 import { audioEngine, EQ_PRESETS } from './services/audioEngine';
@@ -83,7 +86,14 @@ export default function App() {
   const [isFullPlayerOpen, setIsFullPlayerOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
 
-  const [settings, setSettings] = useState<AudioSettings>(DEFAULT_SETTINGS);
+  // Initialize settings synchronously from local storage if available to eliminate any reset on startup
+  const [settings, setSettings] = useState<AudioSettings>(() => {
+    const local = getLocalStoredSettings();
+    if (local) {
+      return { ...DEFAULT_SETTINGS, ...local };
+    }
+    return DEFAULT_SETTINGS;
+  });
 
   const [sleepTimer, setSleepTimer] = useState<SleepTimerConfig>({
     active: false,
@@ -100,7 +110,7 @@ export default function App() {
   const activeBlobUrlRef = useRef<string | null>(null);
   const lastPrevClickRef = useRef<number>(0);
 
-  // Initialize DB and default tracks & playlists
+  // Initialize DB, default tracks & restore persisted settings
   useEffect(() => {
     async function initData() {
       try {
@@ -144,19 +154,35 @@ export default function App() {
           savedPlaylists = await getAllPlaylists();
         }
 
+        // Deep sync saved settings from storage & apply across Audio Engine
         const savedAudioSettings = await loadSettings();
         if (savedAudioSettings) {
-          setSettings((prev) => ({ ...prev, ...savedAudioSettings }));
+          setSettings((prev) => {
+            const merged = { ...prev, ...savedAudioSettings };
+            audioEngine.applyFullSettings(merged);
+            return merged;
+          });
         }
 
         setTracks(savedTracks);
         setPlaylists(savedPlaylists);
 
         if (savedTracks.length > 0) {
-          setCurrentTrack(savedTracks[0]);
+          // Restore user's last selected track so app doesn't reset song on reopen
+          const lastTrackId = getStoredLastTrackId();
+          const restoredTrack =
+            (lastTrackId && savedTracks.find((t) => t.id === lastTrackId)) || savedTracks[0];
+
+          setCurrentTrack(restoredTrack);
           setOriginalQueue(savedTracks);
-          if (savedAudioSettings?.shuffle) {
-            setQueue(generateShuffledQueue(savedTracks, savedTracks[0]));
+
+          const activeShuffle =
+            savedAudioSettings?.shuffle !== undefined
+              ? savedAudioSettings.shuffle
+              : settings.shuffle;
+
+          if (activeShuffle) {
+            setQueue(generateShuffledQueue(savedTracks, restoredTrack));
           } else {
             setQueue(savedTracks);
           }
@@ -169,16 +195,30 @@ export default function App() {
     initData();
   }, []);
 
-  // Initialize Web Audio API Engine with <audio> element
+  // Initialize Web Audio API Engine with <audio> element and sync current settings
   useEffect(() => {
     if (audioRef.current) {
       audioEngine.init(audioRef.current);
-      audioEngine.setVolume(settings.volume);
-      audioEngine.setSafeLimit(settings.safeVolumeLimit, settings.safeVolumeEnforced);
-      audioEngine.setGainBoost(settings.gainBoost);
-      audioEngine.setBassBoost(settings.bassBoost);
+      audioEngine.applyFullSettings(settings);
     }
   }, []);
+
+  // Guarantee settings and state are saved when user exits or minimizes the app
+  useEffect(() => {
+    const handleBeforeExit = () => {
+      saveSettings(settings);
+      if (currentTrack) {
+        saveStoredLastTrackId(currentTrack.id);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeExit);
+    window.addEventListener('pagehide', handleBeforeExit);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeExit);
+      window.removeEventListener('pagehide', handleBeforeExit);
+    };
+  }, [settings, currentTrack]);
 
   // Sleep Timer Countdown Interval
   useEffect(() => {
@@ -282,11 +322,12 @@ export default function App() {
     }
   }, []);
 
-  // Setting updates
+  // Setting updates with immediate audio engine synchronization and persistent storage
   const handleUpdateSettings = useCallback((newSettings: Partial<AudioSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
       saveSettings(updated);
+      audioEngine.applyFullSettings(updated);
       return updated;
     });
   }, []);
@@ -311,6 +352,7 @@ export default function App() {
       }
 
       setCurrentTrack(track);
+      saveStoredLastTrackId(track.id);
       await loadTrackSource(track, true);
     },
     [tracks, settings.shuffle, playbackSource, loadTrackSource]
@@ -327,6 +369,7 @@ export default function App() {
       setQueue(shuffled);
       handleUpdateSettings({ shuffle: true });
       setCurrentTrack(shuffled[0]);
+      saveStoredLastTrackId(shuffled[0].id);
       await loadTrackSource(shuffled[0], true);
     },
     [handleUpdateSettings, loadTrackSource]
@@ -811,10 +854,7 @@ export default function App() {
               onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
               onResetAllSettings={() => {
                 setSettings(DEFAULT_SETTINGS);
-                audioEngine.setVolume(DEFAULT_SETTINGS.volume);
-                audioEngine.setSafeLimit(DEFAULT_SETTINGS.safeVolumeLimit, true);
-                audioEngine.setGainBoost(1.0);
-                audioEngine.setEQPreset(EQ_PRESETS[0]);
+                audioEngine.applyFullSettings(DEFAULT_SETTINGS);
                 saveSettings(DEFAULT_SETTINGS);
               }}
             />

@@ -44,18 +44,20 @@ export function NowPlayingBar({
           />
         </div>
 
-        <div className="flex items-center justify-between p-2 gap-2.5">
-          {/* Track Info (Click to Expand) */}
+        <div className="flex items-center justify-between p-2 sm:p-2.5 gap-2 sm:gap-3">
+          {/* Track Info (Click anywhere here to Expand) */}
           <div
             onClick={onExpand}
             className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer"
           >
-            <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0 relative shadow">
+            <div className="w-11 h-11 rounded-xl overflow-hidden bg-white/5 border border-white/10 shrink-0 relative shadow-md">
               {track.coverUrl ? (
                 <img
                   src={track.coverUrl}
                   alt={track.title}
-                  className={`w-full h-full object-cover ${isPlaying ? 'scale-105' : ''}`}
+                  className={`w-full h-full object-cover transition-transform duration-300 ${
+                    isPlaying ? 'scale-105' : ''
+                  }`}
                   referrerPolicy="no-referrer"
                 />
               ) : (
@@ -70,90 +72,92 @@ export function NowPlayingBar({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <h4 className="text-xs font-bold text-white truncate group-hover:text-[#F27D26] transition-colors">
+                <h4 className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-[#F27D26] transition-colors leading-tight">
                   {track.title}
                 </h4>
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#F27D26]/15 text-[#F27D26] border border-[#F27D26]/30 shrink-0">
+                <span className="text-[9px] font-mono font-semibold px-1.5 py-0.2 rounded bg-[#F27D26]/15 text-[#F27D26] border border-[#F27D26]/30 shrink-0">
                   {track.format}
                 </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-white/50 truncate mt-0.5">
+                <span className="truncate">{track.artist}</span>
                 {settings.shuffle && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (onDisableShuffle) onDisableShuffle();
                     }}
-                    className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#F27D26]/20 text-[#F27D26] hover:bg-rose-500/20 hover:text-rose-300 border border-[#F27D26]/40 hover:border-rose-500/40 shrink-0 cursor-pointer transition-colors flex items-center gap-1"
-                    title="Putar Acak Aktif - Klik untuk Menghentikan Acak"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-[#F27D26]/20 hover:bg-rose-500/20 text-[#F27D26] hover:text-rose-300 border border-[#F27D26]/30 font-mono text-[9px] font-bold shrink-0 transition-colors cursor-pointer"
+                    title="Acak Aktif - Ketuk untuk Matikan Acak"
                   >
                     <Shuffle className="w-2.5 h-2.5" />
-                    <span>Acak (Hentikan)</span>
+                    <span>Acak</span>
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-white/50 truncate mt-0.5">
-                {track.artist} • {track.album}
-              </p>
             </div>
           </div>
 
-          {/* Quick Action Buttons */}
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Lagu Sebelumnya */}
+          {/* Ergonomic Playback Transport Controls */}
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {/* Tombol Favorit */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite(track.id);
+              }}
+              className="w-8.5 h-8.5 sm:w-9.5 sm:h-9.5 text-white/50 hover:text-rose-400 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer active:scale-95"
+              title={track.isFavorite ? 'Hapus dari Favorit' : 'Tambah ke Favorit'}
+            >
+              <Heart
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform ${
+                  track.isFavorite ? 'fill-rose-500 text-rose-500 scale-110' : ''
+                }`}
+              />
+            </button>
+
+            {/* Tombol Lagu Sebelumnya */}
             <button
               id="mini-prev-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 onPrev();
               }}
-              className="p-2 text-white/70 hover:text-white cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors active:scale-90"
+              className="w-8.5 h-8.5 sm:w-9.5 sm:h-9.5 text-white/80 hover:text-white flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all cursor-pointer active:scale-90"
               title="Lagu Sebelumnya"
             >
-              <SkipBack className="w-4 h-4 fill-current" />
+              <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
             </button>
 
+            {/* Tombol Utama Putar/Jeda (High Contrast & Prominent) */}
             <button
               id="mini-play-pause-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 onTogglePlay();
               }}
-              className="w-9 h-9 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white flex items-center justify-center cursor-pointer shadow-lg shadow-[#F27D26]/30 active:scale-95 transition-all"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-[#F27D26] to-[#ff9b4e] hover:brightness-110 text-white flex items-center justify-center cursor-pointer shadow-lg shadow-[#F27D26]/30 active:scale-95 transition-all relative overflow-hidden"
               title={isPlaying ? 'Jeda' : 'Putar'}
             >
+              <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-transparent to-black/15 pointer-events-none" />
               {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
+                <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-current text-white relative z-10" />
               ) : (
-                <Play className="w-4 h-4 fill-current translate-x-0.5" />
+                <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current text-white translate-x-0.5 relative z-10" />
               )}
             </button>
 
-            {/* Lagu Berikutnya */}
+            {/* Tombol Lagu Berikutnya */}
             <button
               id="mini-next-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 onNext();
               }}
-              className="p-2 text-white/70 hover:text-white cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors active:scale-90"
+              className="w-8.5 h-8.5 sm:w-9.5 sm:h-9.5 text-white/80 hover:text-white flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all cursor-pointer active:scale-90"
               title="Lagu Berikutnya"
             >
-              <SkipForward className="w-4 h-4 fill-current" />
-            </button>
-
-            {/* Favorit */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFavorite(track.id);
-              }}
-              className="p-2 text-white/50 hover:text-rose-400 cursor-pointer rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
-              title="Favorit"
-            >
-              <Heart
-                className={`w-4 h-4 ${
-                  track.isFavorite ? 'fill-rose-500 text-rose-500' : ''
-                }`}
-              />
+              <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
             </button>
           </div>
         </div>

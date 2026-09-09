@@ -157,8 +157,48 @@ export async function deletePlaylist(playlistId: string): Promise<void> {
   });
 }
 
-// Settings operations
+// Settings operations with synchronous localStorage fallback & IndexedDB durable storage
+const SETTINGS_LOCAL_KEY = 'playlish_audio_settings_v2';
+const LAST_TRACK_KEY = 'playlish_last_track_id';
+
+export function getLocalStoredSettings(): Partial<AudioSettings> | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_LOCAL_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Could not read settings from localStorage:', e);
+  }
+  return null;
+}
+
+export function saveLocalStoredSettings(settings: AudioSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_LOCAL_KEY, JSON.stringify(settings));
+  } catch (e) {
+    console.warn('Could not write settings to localStorage:', e);
+  }
+}
+
+export function getStoredLastTrackId(): string | null {
+  try {
+    return localStorage.getItem(LAST_TRACK_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveStoredLastTrackId(trackId: string): void {
+  try {
+    localStorage.setItem(LAST_TRACK_KEY, trackId);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export async function loadSettings(): Promise<Partial<AudioSettings> | null> {
+  const local = getLocalStoredSettings();
   try {
     const db = await getDB();
     return new Promise((resolve) => {
@@ -166,24 +206,31 @@ export async function loadSettings(): Promise<Partial<AudioSettings> | null> {
       const request = tx.objectStore('settings').get('audio_settings');
       request.onsuccess = () => {
         if (request.result && request.result.value) {
-          resolve(request.result.value);
+          // Merge local and indexedDB for maximum reliability
+          const merged = { ...local, ...request.result.value };
+          saveLocalStoredSettings(merged);
+          resolve(merged);
         } else {
-          resolve(null);
+          resolve(local);
         }
       };
-      request.onerror = () => resolve(null);
+      request.onerror = () => resolve(local);
     });
   } catch {
-    return null;
+    return local;
   }
 }
 
 export async function saveSettings(settings: AudioSettings): Promise<void> {
+  // 1. Immediately persist synchronously to localStorage to ensure no data loss on app close/kill
+  saveLocalStoredSettings(settings);
+
+  // 2. Persist to IndexedDB
   try {
     const db = await getDB();
     const tx = db.transaction('settings', 'readwrite');
     tx.objectStore('settings').put({ key: 'audio_settings', value: settings });
   } catch (err) {
-    console.error('Failed to save settings:', err);
+    console.error('Failed to save settings to IndexedDB:', err);
   }
 }

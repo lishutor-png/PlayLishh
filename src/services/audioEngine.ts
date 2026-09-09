@@ -1,4 +1,4 @@
-import { EqualizerBand, EqualizerPreset } from '../types';
+import { EqualizerBand, EqualizerPreset, AudioSettings } from '../types';
 
 export const EQ_FREQUENCIES: { freq: number; label: string; type: BiquadFilterType }[] = [
   { freq: 60, label: '60 Hz', type: 'lowshelf' },
@@ -214,6 +214,35 @@ class AudioEngine {
     if (this.bassBoostFilter && this.ctx) {
       const dbGain = (this.bassBoostVal / 100) * 12;
       this.bassBoostFilter.gain.setTargetAtTime(dbGain, this.ctx.currentTime, 0.05);
+    }
+  }
+
+  // Restore and sync all audio settings across context & nodes
+  public applyFullSettings(settings: AudioSettings) {
+    this.volume = Math.max(0, Math.min(1, settings.volume));
+    this.safeLimit = Math.max(0.4, Math.min(1.0, settings.safeVolumeLimit));
+    this.isSafeEnforced = settings.safeVolumeEnforced;
+    this.gainBoost = Math.max(1.0, Math.min(2.5, settings.gainBoost));
+    this.bassBoostVal = Math.max(0, Math.min(100, settings.bassBoost));
+    if (settings.equalizerBands && settings.equalizerBands.length === 5) {
+      this.eqBandsState = [...settings.equalizerBands];
+    }
+
+    if (this.ctx) {
+      this.updateMasterGain();
+      if (this.preampGainNode) {
+        this.preampGainNode.gain.setTargetAtTime(this.gainBoost, this.ctx.currentTime, 0.05);
+      }
+      if (this.bassBoostFilter) {
+        const dbGain = (this.bassBoostVal / 100) * 12;
+        this.bassBoostFilter.gain.setTargetAtTime(dbGain, this.ctx.currentTime, 0.05);
+      }
+      this.eqFilters.forEach((filter, idx) => {
+        filter.gain.setTargetAtTime(this.eqBandsState[idx] || 0, this.ctx!.currentTime, 0.05);
+      });
+    } else if (this.audioElement) {
+      const effectiveVolume = this.isSafeEnforced && this.volume > this.safeLimit ? this.safeLimit : this.volume;
+      this.audioElement.volume = effectiveVolume;
     }
   }
 
