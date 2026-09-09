@@ -1,0 +1,189 @@
+import { AudioTrack, Playlist, AudioSettings } from '../types';
+
+const DB_NAME = 'PlayLishDB';
+const DB_VERSION = 1;
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+export function getDB(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+
+      if (!db.objectStoreNames.contains('tracks')) {
+        const trackStore = db.createObjectStore('tracks', { keyPath: 'id' });
+        trackStore.createIndex('addedAt', 'addedAt', { unique: false });
+        trackStore.createIndex('format', 'format', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('audioBlobs')) {
+        db.createObjectStore('audioBlobs', { keyPath: 'trackId' });
+      }
+
+      if (!db.objectStoreNames.contains('playlists')) {
+        const playlistStore = db.createObjectStore('playlists', { keyPath: 'id' });
+        playlistStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'key' });
+      }
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+
+  return dbPromise;
+}
+
+// Track operations
+export async function saveTrack(track: AudioTrack, audioBlob?: Blob): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['tracks', 'audioBlobs'], 'readwrite');
+  
+  // Strip blobData from metadata object before storing in tracks store
+  const { blobData, ...trackMeta } = track;
+  
+  tx.objectStore('tracks').put(trackMeta);
+  
+  if (audioBlob || blobData) {
+    const blobToStore = audioBlob || blobData;
+    tx.objectStore('audioBlobs').put({
+      trackId: track.id,
+      blob: blobToStore,
+      mimeType: blobToStore?.type || 'audio/mp3',
+      savedAt: Date.now()
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getAllTracks(): Promise<AudioTrack[]> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('tracks', 'readonly');
+    const request = tx.objectStore('tracks').getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getTrackBlob(trackId: string): Promise<Blob | null> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('audioBlobs', 'readonly');
+    const request = tx.objectStore('audioBlobs').get(trackId);
+    request.onsuccess = () => {
+      if (request.result && request.result.blob) {
+        resolve(request.result.blob);
+      } else {
+        resolve(null);
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function deleteTrack(trackId: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['tracks', 'audioBlobs', 'playlists'], 'readwrite');
+  
+  tx.objectStore('tracks').delete(trackId);
+  tx.objectStore('audioBlobs').delete(trackId);
+
+  // Automatically remove this track from all playlists!
+  const playlistStore = tx.objectStore('playlists');
+  const getAllPlaylistsReq = playlistStore.getAll();
+  
+  getAllPlaylistsReq.onsuccess = () => {
+    const playlists: Playlist[] = getAllPlaylistsReq.result || [];
+    playlists.forEach(pl => {
+      if (pl.trackIds.includes(trackId)) {
+        pl.trackIds = pl.trackIds.filter(id => id !== trackId);
+        pl.updatedAt = Date.now();
+        playlistStore.put(pl);
+      }
+    });
+  };
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Playlist operations
+export async function getAllPlaylists(): Promise<Playlist[]> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('playlists', 'readonly');
+    const request = tx.objectStore('playlists').getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function savePlaylist(playlist: Playlist): Promise<void> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('playlists', 'readwrite');
+    tx.objectStore('playlists').put(playlist);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function deletePlaylist(playlistId: string): Promise<void> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('playlists', 'readwrite');
+    tx.objectStore('playlists').delete(playlistId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Settings operations
+export async function loadSettings(): Promise<Partial<AudioSettings> | null> {
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('settings', 'readonly');
+      const request = tx.objectStore('settings').get('audio_settings');
+      request.onsuccess = () => {
+        if (request.result && request.result.value) {
+          resolve(request.result.value);
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSettings(settings: AudioSettings): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('settings', 'readwrite');
+    tx.objectStore('settings').put({ key: 'audio_settings', value: settings });
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+  }
+}
