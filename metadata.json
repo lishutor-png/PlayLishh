@@ -1,6 +1,6 @@
 {
   "name": "PlayLish",
-  "description": "A minimalist, elegant Android-styled Hi-Res music player with safe volume limiter, audio booster, multi-band equalizer, playlist manager, offline mode, and sleep timer.",
+  "description": "Pemutar musik minimalis elegan dengan audio Hi-Res, equalizer, lirik berjalan, dan playlist cerdas.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

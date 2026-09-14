@@ -108,6 +108,8 @@ export function updateMediaSessionMetadata(track: AudioTrack | null): void {
   // In that case, we fall back to our high-resolution PNG music cover.
   if (!primaryArtwork || primaryArtwork.startsWith('blob:')) {
     primaryArtwork = defaultPngCover;
+  } else if (primaryArtwork.startsWith('data:')) {
+    // Keep data: URI intact for embedded artwork
   } else if (!primaryArtwork.startsWith('http://') && !primaryArtwork.startsWith('https://')) {
     primaryArtwork = `${origin}${primaryArtwork.startsWith('/') ? '' : '/'}${primaryArtwork}`;
   }

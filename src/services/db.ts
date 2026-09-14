@@ -98,6 +98,23 @@ export async function getTrackBlob(trackId: string): Promise<Blob | null> {
   });
 }
 
+export async function updateTrackLyrics(trackId: string, lyrics: string): Promise<void> {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('tracks', 'readwrite');
+    const store = tx.objectStore('tracks');
+    const getReq = store.get(trackId);
+    getReq.onsuccess = () => {
+      if (getReq.result) {
+        const updated = { ...getReq.result, lyrics };
+        store.put(updated);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function deleteTrack(trackId: string): Promise<void> {
   const db = await getDB();
   const tx = db.transaction(['tracks', 'audioBlobs', 'playlists'], 'readwrite');

@@ -11,6 +11,7 @@ import {
 import {
   getAllTracks,
   saveTrack,
+  updateTrackLyrics,
   deleteTrack as deleteTrackDB,
   getAllPlaylists,
   savePlaylist,
@@ -22,6 +23,7 @@ import {
   getStoredLastTrackId,
   saveStoredLastTrackId,
 } from './services/db';
+import { extractAudioMetadata } from './services/metadataExtractor';
 import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
 import { audioEngine, EQ_PRESETS } from './services/audioEngine';
 import {
@@ -40,6 +42,7 @@ import { SettingsView } from './components/SettingsView';
 import { NowPlayingBar } from './components/NowPlayingBar';
 import { NowPlayingFull } from './components/NowPlayingFull';
 import { SleepTimerModal } from './components/SleepTimerModal';
+import { LyricEditorModal } from './components/LyricEditorModal';
 
 const DEFAULT_SETTINGS: AudioSettings = {
   volume: 0.75,
@@ -91,6 +94,7 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [isFullPlayerOpen, setIsFullPlayerOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
+  const [editingLyricTrack, setEditingLyricTrack] = useState<AudioTrack | null>(null);
 
   // Initialize settings synchronously from local storage if available to eliminate any reset on startup
   const [settings, setSettings] = useState<AudioSettings>(() => {
@@ -638,7 +642,7 @@ export default function App() {
     }
   };
 
-  // Local File Importer for FLAC, WAV, MP3, AAC, ALAC, OGG
+  // Local File Importer for FLAC, WAV, MP3, AAC, ALAC, OGG with Embedded Cover Art & ID3 Tag Extraction
   const handleImportFiles = async (files: FileList) => {
     const newLoadedTracks: AudioTrack[] = [];
 
@@ -650,16 +654,37 @@ export default function App() {
         format = extension as AudioFormat;
       }
 
-      // Default title from file name
+      // Default fallback title from file name
       const cleanName = file.name.replace(/\.[^/.]+$/, '');
       const trackId = `track-${Date.now()}-${i}`;
 
+      // 1. Extract Embedded ID3/FLAC/MP4 tags and embedded cover artwork
+      const meta = await extractAudioMetadata(file);
+
+      // 2. Extract actual audio duration via temporary audio object
+      let realDuration = 180;
+      try {
+        const tempAudio = new Audio(URL.createObjectURL(file));
+        await new Promise((resolve) => {
+          tempAudio.onloadedmetadata = () => resolve(null);
+          tempAudio.onerror = () => resolve(null);
+          setTimeout(resolve, 800);
+        });
+        if (tempAudio.duration && !isNaN(tempAudio.duration) && isFinite(tempAudio.duration)) {
+          realDuration = Math.round(tempAudio.duration);
+        }
+      } catch {
+        realDuration = 180;
+      }
+
       const newTrack: AudioTrack = {
         id: trackId,
-        title: cleanName,
-        artist: 'Lokal Audio',
-        album: 'Impor PlayLish',
-        duration: 180,
+        title: meta.title || cleanName,
+        artist: meta.artist || 'Lokal Audio',
+        album: meta.album || 'Impor PlayLish',
+        duration: realDuration,
+        coverUrl: meta.coverUrl, // Embedded album art image
+        lyrics: meta.lyrics, // Embedded lyrics if available
         format,
         sampleRate: format === 'FLAC' ? 96000 : format === 'WAV' ? 48000 : 44100,
         bitDepth: format === 'FLAC' || format === 'WAV' ? 24 : 16,
@@ -667,8 +692,9 @@ export default function App() {
         fileSize: file.size,
         isOffline: true,
         isFavorite: false,
+        genre: meta.genre || 'Lokal Lossless',
         addedAt: Date.now(),
-        colorHex: '#06b6d4',
+        colorHex: '#F27D26',
       };
 
       await saveTrack(newTrack, file);
@@ -680,6 +706,23 @@ export default function App() {
     if (newLoadedTracks.length > 0 && !currentTrack) {
       handlePlayTrack(newLoadedTracks[0]);
     }
+  };
+
+  // Update Track Lyrics Permanently in DB & Active States
+  const handleUpdateTrackLyrics = async (trackId: string, newLyrics: string) => {
+    await updateTrackLyrics(trackId, newLyrics);
+    setTracks((prev) =>
+      prev.map((t) => (t.id === trackId ? { ...t, lyrics: newLyrics } : t))
+    );
+    if (currentTrack && currentTrack.id === trackId) {
+      setCurrentTrack((prev) => (prev ? { ...prev, lyrics: newLyrics } : null));
+    }
+    setQueue((prev) =>
+      prev.map((t) => (t.id === trackId ? { ...t, lyrics: newLyrics } : t))
+    );
+    setOriginalQueue((prev) =>
+      prev.map((t) => (t.id === trackId ? { ...t, lyrics: newLyrics } : t))
+    );
   };
 
   // Delete Track from Library, Queues, and All Playlists
@@ -807,6 +850,7 @@ export default function App() {
               onAddTrackToPlaylist={handleAddTrackToPlaylist}
               onImportFiles={handleImportFiles}
               onDeleteTrack={handleDeleteTrack}
+              onOpenLyricEditor={(targetTrack) => setEditingLyricTrack(targetTrack)}
             />
           )}
 
@@ -934,6 +978,7 @@ export default function App() {
             }}
             onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
             onSelectTrackFromQueue={(t) => handlePlayTrack(t, queue, playbackSource)}
+            onUpdateTrackLyrics={handleUpdateTrackLyrics}
           />
         )}
 
@@ -946,6 +991,35 @@ export default function App() {
           onCancelTimer={handleCancelSleepTimer}
           onAddMinutes={handleAddTimerMinutes}
         />
+
+        {/* Dedicated Lyric Editor Modal (Available from Library & Track List) */}
+        {editingLyricTrack && (
+          <LyricEditorModal
+            track={editingLyricTrack}
+            currentTime={currentTrack?.id === editingLyricTrack.id ? currentTime : 0}
+            duration={currentTrack?.id === editingLyricTrack.id ? (duration || editingLyricTrack.duration) : editingLyricTrack.duration}
+            isPlaying={currentTrack?.id === editingLyricTrack.id ? isPlaying : false}
+            onTogglePlay={() => {
+              if (currentTrack?.id === editingLyricTrack.id) {
+                togglePlay();
+              } else {
+                handlePlayTrack(editingLyricTrack);
+              }
+            }}
+            onSeek={(time) => {
+              if (currentTrack?.id === editingLyricTrack.id) {
+                handleSeek(time);
+              }
+            }}
+            onPlayTrack={handlePlayTrack}
+            isOpen={Boolean(editingLyricTrack)}
+            onClose={() => setEditingLyricTrack(null)}
+            onSaveLyrics={async (trackId, newLyrics) => {
+              await handleUpdateTrackLyrics(trackId, newLyrics);
+              setEditingLyricTrack(null);
+            }}
+          />
+        )}
       </main>
     </div>
   );

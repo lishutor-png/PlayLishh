@@ -17,6 +17,7 @@ import {
   Shuffle,
   RotateCcw,
   AlertTriangle,
+  FileText,
 } from 'lucide-react';
 import { AudioTrack, Playlist, AudioFormat } from '../types';
 import { AppLogo } from './AppLogo';
@@ -36,6 +37,7 @@ interface TracksViewProps {
   onAddTrackToPlaylist: (playlistId: string, trackId: string) => void;
   onImportFiles: (files: FileList) => void;
   onDeleteTrack: (trackId: string) => void;
+  onOpenLyricEditor?: (track: AudioTrack) => void;
 }
 
 export function TracksView({
@@ -53,6 +55,7 @@ export function TracksView({
   onAddTrackToPlaylist,
   onImportFiles,
   onDeleteTrack,
+  onOpenLyricEditor,
 }: TracksViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
@@ -345,6 +348,23 @@ export function TracksView({
                   >
                     <ListPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
+
+                  {onOpenLyricEditor && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenLyricEditor(track);
+                      }}
+                      className={`w-8 h-8 sm:w-8.5 sm:h-8.5 flex items-center justify-center cursor-pointer rounded-xl border transition-colors active:scale-95 ${
+                        track.lyrics
+                          ? 'bg-[#F27D26]/20 text-[#F27D26] border-[#F27D26]/40 shadow-sm'
+                          : 'text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                      }`}
+                      title={track.lyrics ? 'Lirik Tersedia (Ketuk untuk Edit)' : 'Sematkan Lirik ke Lagu Ini'}
+                    >
+                      <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </button>
+                  )}
 
                   <button
                     onClick={(e) => {

@@ -22,9 +22,12 @@ import {
   Info,
   Disc,
   RotateCcw,
+  Edit3,
 } from 'lucide-react';
 import { AudioTrack, AudioSettings, SleepTimerConfig, PlaybackSource } from '../types';
 import { VisualizerCanvas } from './VisualizerCanvas';
+import { SyncedLyricsView } from './SyncedLyricsView';
+import { LyricEditorModal } from './LyricEditorModal';
 import { audioEngine } from '../services/audioEngine';
 
 interface NowPlayingFullProps {
@@ -49,6 +52,7 @@ interface NowPlayingFullProps {
   onOpenEqualizer: () => void;
   onOpenSleepTimer: () => void;
   onSelectTrackFromQueue: (track: AudioTrack) => void;
+  onUpdateTrackLyrics?: (trackId: string, newLyrics: string) => Promise<void>;
 }
 
 export function NowPlayingFull({
@@ -73,9 +77,11 @@ export function NowPlayingFull({
   onOpenEqualizer,
   onOpenSleepTimer,
   onSelectTrackFromQueue,
+  onUpdateTrackLyrics,
 }: NowPlayingFullProps) {
   const [activeTab, setActiveTab] = useState<'player' | 'lyrics' | 'queue'>('player');
   const [showBoosterControl, setShowBoosterControl] = useState(false);
+  const [isLyricModalOpen, setIsLyricModalOpen] = useState(false);
 
   const formatTime = (sec: number) => {
     if (isNaN(sec) || sec < 0) return '0:00';
@@ -134,6 +140,13 @@ export function NowPlayingFull({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setIsLyricModalOpen(true)}
+            className="p-2 rounded-2xl bg-white/5 hover:bg-white/15 text-white/70 hover:text-[#F27D26] border border-white/10 cursor-pointer transition-all active:scale-95"
+            title="Kelola & Sematkan Lirik Lagu"
+          >
+            <Sparkles className="w-4 h-4 text-[#F27D26]" />
+          </button>
           <button
             onClick={onOpenEqualizer}
             className="p-2 rounded-2xl bg-white/5 hover:bg-white/15 text-white/70 hover:text-[#F27D26] border border-white/10 cursor-pointer transition-all active:scale-95"
@@ -195,9 +208,9 @@ export function NowPlayingFull({
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-2 overflow-y-auto z-10 max-w-md mx-auto w-full">
         {/* TAB 1: VISUAL & ALBUM ART */}
         {activeTab === 'player' && (
-          <div className="w-full flex flex-col items-center gap-4 animate-in fade-in">
+          <div className="w-full flex flex-col items-center gap-3.5 animate-in fade-in">
             {/* Album Cover with Vinyl / Art Glow Effect */}
-            <div className="relative w-56 h-56 sm:w-64 sm:h-64 rounded-[32px] overflow-hidden shadow-2xl border border-white/20 group">
+            <div className="relative w-52 h-52 sm:w-60 sm:h-60 rounded-[32px] overflow-hidden shadow-2xl border border-white/20 group">
               {track.coverUrl ? (
                 <img
                   src={track.coverUrl}
@@ -232,29 +245,38 @@ export function NowPlayingFull({
               <VisualizerCanvas
                 isPlaying={isPlaying}
                 color={track.colorHex || '#F27D26'}
-                height={55}
+                height={46}
                 mode="bars"
+              />
+            </div>
+
+            {/* LIRIK BERJALAN DI BAWAH TAMPILAN LAGU (Karaoke Ticker) */}
+            <div className="w-full">
+              <SyncedLyricsView
+                mode="ticker"
+                rawLyrics={track.lyrics}
+                currentTime={currentTime}
+                duration={duration || track.duration}
+                onOpenEditor={() => setIsLyricModalOpen(true)}
+                onSeek={onSeek}
+                trackTitle={track.title}
               />
             </div>
           </div>
         )}
 
-        {/* TAB 2: LYRICS */}
+        {/* TAB 2: FULL SYNCHRONIZED LYRICS */}
         {activeTab === 'lyrics' && (
-          <div className="w-full h-64 overflow-y-auto px-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-center flex flex-col items-center justify-start space-y-4 backdrop-blur-xl">
-            <div className="text-[11px] font-mono uppercase text-[#F27D26] tracking-widest font-semibold">
-              Lirik Lagu
-            </div>
-            {track.lyrics ? (
-              <div className="text-sm leading-relaxed text-white/80 whitespace-pre-line font-medium">
-                {track.lyrics}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-white/40 text-xs">
-                <FileText className="w-8 h-8 mb-2 opacity-50" />
-                Lirik belum tersedia untuk lagu ini.
-              </div>
-            )}
+          <div className="w-full animate-in fade-in">
+            <SyncedLyricsView
+              mode="full"
+              rawLyrics={track.lyrics}
+              currentTime={currentTime}
+              duration={duration || track.duration}
+              onOpenEditor={() => setIsLyricModalOpen(true)}
+              onSeek={onSeek}
+              trackTitle={track.title}
+            />
           </div>
         )}
 
@@ -551,6 +573,25 @@ export function NowPlayingFull({
           </div>
         )}
       </div>
+
+      {/* Lyric Editor & AI Auto-Lyrics Modal */}
+      {isLyricModalOpen && (
+        <LyricEditorModal
+          track={track}
+          currentTime={currentTime}
+          duration={duration || track.duration}
+          isPlaying={isPlaying}
+          onTogglePlay={onTogglePlay}
+          onSeek={onSeek}
+          isOpen={isLyricModalOpen}
+          onClose={() => setIsLyricModalOpen(false)}
+          onSaveLyrics={async (trackId, newLyrics) => {
+            if (onUpdateTrackLyrics) {
+              await onUpdateTrackLyrics(trackId, newLyrics);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
