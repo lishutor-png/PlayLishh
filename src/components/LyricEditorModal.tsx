@@ -22,6 +22,12 @@ import {
   ChevronRight,
   SlidersHorizontal,
   Volume2,
+  FolderDown,
+  FolderOpen,
+  Share2,
+  Copy,
+  Check,
+  ExternalLink,
 } from 'lucide-react';
 import { AudioTrack } from '../types';
 import { formatLrc, LyricLine, parseLyrics } from '../services/lyricParser';
@@ -252,22 +258,135 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
     }, 600);
   };
 
-  // Download .LRC file to device
-  const handleDownloadLrc = () => {
-    const textToDownload = lyricsText || (syncLines.length > 0 ? formatLrc(syncLines) : '');
-    if (!textToDownload) return;
+  // Export / Save destination manager state
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [customFileName, setCustomFileName] = useState(
+    track.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik'
+  );
+  const [copiedLrc, setCopiedLrc] = useState(false);
+  const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
+
+  // Update filename if track changes
+  useEffect(() => {
+    if (track) {
+      const clean = track.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
+      setCustomFileName(clean);
+    }
+  }, [track.id, track.title]);
+
+  // Helper to get formatted text for export
+  const getTextToExport = useCallback(() => {
+    if (syncLines.length > 0) return formatLrc(syncLines);
+    return lyricsText.trim();
+  }, [syncLines, lyricsText]);
+
+  // Option 1: File System Access API - Lets user choose the EXACT directory on PC / supported Chrome
+  const handleSaveWithPicker = async () => {
+    const text = getTextToExport();
+    if (!text) {
+      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk disimpan.' });
+      return;
+    }
+    const fileName = `${customFileName.trim() || 'lirik'}.lrc`;
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: 'Berkas Lirik Sinkron (*.lrc)',
+              accept: { 'text/plain': ['.lrc', '.txt'] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+        setExportSuccessMessage(`File "${handle.name || fileName}" berhasil disimpan di folder pilihan Anda!`);
+        setStatusMessage({
+          type: 'success',
+          text: `File "${handle.name || fileName}" berhasil disimpan di folder pilihan Anda!`,
+        });
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return; // User cancelled the picker
+        console.warn('showSaveFilePicker error:', err);
+      }
+    }
+
+    // If File System Access API is not supported in this browser, fall back to share or direct download
+    handleDirectDownload();
+  };
+
+  // Option 2: Mobile Share Sheet (Android / iOS) - lets user send/save directly to "File Saya", Google Drive, WhatsApp, etc.
+  const handleShareSheet = async () => {
+    const text = getTextToExport();
+    if (!text) {
+      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk disimpan.' });
+      return;
+    }
+    const fileName = `${customFileName.trim() || 'lirik'}.lrc`;
+
+    try {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const file = new File([blob], fileName, { type: 'text/plain' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `${track.title} - Lirik LRC`,
+          text: `Berkas lirik lagu ${track.title}`,
+        });
+        setExportSuccessMessage(`Berhasil dikirim / disimpan melalui menu HP!`);
+        return;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      console.warn('Share error:', err);
+    }
+
+    // If not supported, fallback to direct download
+    handleDirectDownload();
+  };
+
+  // Option 3: Standard Browser Download to Downloads folder
+  const handleDirectDownload = () => {
+    const textToDownload = getTextToExport();
+    if (!textToDownload) {
+      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk diunduh.' });
+      return;
+    }
 
     const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const safeTitle = track.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
+    const safeTitle = customFileName.trim() || track.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
     link.href = url;
     link.download = `${safeTitle}.lrc`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    setStatusMessage({ type: 'info', text: `File "${safeTitle}.lrc" berhasil diunduh ke perangkat.` });
+    setExportSuccessMessage(`File "${safeTitle}.lrc" diunduh ke folder Download perangkat Anda.`);
+    setStatusMessage({
+      type: 'info',
+      text: `File "${safeTitle}.lrc" berhasil diunduh. Cek folder Download / Unduhan di HP/Komputer Anda.`,
+    });
+  };
+
+  // Option 4: Copy to clipboard so user can paste into notes app
+  const handleCopyAllLrc = async () => {
+    const text = getTextToExport();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedLrc(true);
+      setTimeout(() => setCopiedLrc(false), 2500);
+      setExportSuccessMessage('Seluruh teks lirik berhasil disalin ke papan klip (clipboard)!');
+    } catch {
+      setStatusMessage({ type: 'info', text: 'Silakan pilih dan salin teks langsung dari kotak editor.' });
+    }
   };
 
   // Handle AI Auto-write lyrics
@@ -427,7 +546,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                       onChange={(e) => setPlainInputText(e.target.value)}
                       placeholder={`Tempelkan lirik lagu Anda di sini baris demi baris...\nContoh:\nKulihat bintang di malam hari\nMelodi indah menemani sunyi\nLagu ini kubuat dari hati`}
                       rows={7}
-                      className="w-full p-3.5 rounded-2xl bg-black/50 border border-white/10 text-white font-sans text-xs focus:outline-none focus:border-[#F27D26] leading-relaxed resize-none transition-colors placeholder:text-white/30"
+                      className="w-full p-4 rounded-2xl bg-black/50 border border-white/10 text-white font-sans text-sm sm:text-base focus:outline-none focus:border-[#F27D26] leading-relaxed resize-none transition-colors placeholder:text-white/30"
                     />
                     <button
                       type="button"
@@ -530,19 +649,19 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
 
                     {/* Previous Line preview */}
                     {activeSyncIndex > 0 && (
-                      <div className="text-[11px] text-emerald-400/70 line-clamp-1 italic">
+                      <div className="text-xs sm:text-sm text-emerald-400/80 line-clamp-1 italic font-medium">
                         ✓ {syncLines[activeSyncIndex - 1]?.text} ({formatSecs(syncLines[activeSyncIndex - 1]?.time)})
                       </div>
                     )}
 
                     {/* BIG CURRENT LINE TEXT */}
-                    <div className="text-base sm:text-lg font-extrabold text-white tracking-wide py-1 drop-shadow-md">
+                    <div className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight py-2.5 drop-shadow-[0_2px_16px_rgba(242,125,38,0.55)] leading-snug">
                       {syncLines[activeSyncIndex]?.text || 'Semua baris selesai!'}
                     </div>
 
                     {/* Next Line preview */}
                     {activeSyncIndex + 1 < syncLines.length && (
-                      <div className="text-[11px] text-white/40 line-clamp-1">
+                      <div className="text-xs sm:text-sm text-white/50 line-clamp-1 font-medium">
                         Berikutnya: {syncLines[activeSyncIndex + 1]?.text}
                       </div>
                     )}
@@ -552,13 +671,13 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                       type="button"
                       onClick={handleStampActiveLine}
                       disabled={activeSyncIndex >= syncLines.length}
-                      className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-[#F27D26] via-[#ff8833] to-[#F27D26] hover:brightness-110 active:scale-95 text-white font-extrabold text-sm sm:text-base flex flex-col items-center justify-center gap-1 shadow-xl shadow-[#F27D26]/30 transition-all border border-white/20 cursor-pointer"
+                      className="w-full py-4 sm:py-5 px-6 rounded-2xl bg-gradient-to-r from-[#F27D26] via-[#ff8833] to-[#F27D26] hover:brightness-110 active:scale-95 text-white font-black text-sm sm:text-base flex flex-col items-center justify-center gap-1 shadow-xl shadow-[#F27D26]/30 transition-all border border-white/20 cursor-pointer min-h-[56px]"
                     >
                       <div className="flex items-center gap-2">
                         <Radio className="w-5 h-5 animate-pulse" />
                         <span>KETUK SAAT BARIS INI DIMULAI</span>
                       </div>
-                      <span className="text-[10px] font-normal text-white/80">
+                      <span className="text-[11px] font-normal text-white/90">
                         (Atau tekan tombol SPASI pada keyboard)
                       </span>
                     </button>
@@ -605,7 +724,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                       <div
                         key={line.id}
                         onClick={() => setActiveSyncIndex(idx)}
-                        className={`p-2 rounded-xl flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer ${
+                        className={`p-2.5 rounded-xl flex items-center justify-between gap-2.5 text-xs sm:text-sm transition-colors cursor-pointer ${
                           idx === activeSyncIndex
                             ? 'bg-[#F27D26]/20 border border-[#F27D26]/40 text-white font-bold'
                             : line.time > 0
@@ -613,18 +732,18 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                             : 'bg-black/40 text-white/40 hover:bg-white/5'
                         }`}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-mono text-[10px] text-[#F27D26] w-12 shrink-0">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="font-mono text-xs text-[#F27D26] w-14 shrink-0 font-bold">
                             {formatSecs(line.time)}
                           </span>
                           <span className="truncate">{line.text}</span>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleAdjustLineTime(idx, -0.5)}
-                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono text-white/60 hover:text-white"
+                            className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-mono text-white/80 hover:text-white transition-colors"
                             title="Mundurkan 0.5s"
                           >
                             -0.5s
@@ -632,7 +751,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleAdjustLineTime(idx, 0.5)}
-                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono text-white/60 hover:text-white"
+                            className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-mono text-white/80 hover:text-white transition-colors"
                             title="Majukan 0.5s"
                           >
                             +0.5s
@@ -705,12 +824,12 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                 {lyricsText && (
                   <button
                     type="button"
-                    onClick={handleDownloadLrc}
-                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 hover:text-white text-[11px] font-medium flex items-center gap-1.5 transition-colors"
-                    title="Simpan file .lrc ke HP"
+                    onClick={() => setIsExportModalOpen(true)}
+                    className="px-3 py-1.5 rounded-xl bg-[#F27D26]/15 hover:bg-[#F27D26]/25 border border-[#F27D26]/30 text-[#F27D26] text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Pilih folder dan simpan file .lrc"
                   >
-                    <Download className="w-3.5 h-3.5 text-[#F27D26]" />
-                    Unduh .LRC
+                    <FolderDown className="w-3.5 h-3.5" />
+                    Simpan / Ekspor .LRC
                   </button>
                 )}
 
@@ -739,7 +858,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                 }}
                 placeholder="[00:12.50] Tulis atau tempel format LRC di sini..."
                 rows={11}
-                className="w-full p-3.5 rounded-2xl bg-black/60 border border-white/10 text-white font-mono text-xs focus:outline-none focus:border-[#F27D26] leading-relaxed resize-none transition-colors"
+                className="w-full p-4 rounded-2xl bg-black/60 border border-white/10 text-white font-mono text-xs sm:text-sm focus:outline-none focus:border-[#F27D26] leading-relaxed resize-none transition-colors"
               />
             </div>
           )}
@@ -796,11 +915,12 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
             {lyricsText && (
               <button
                 type="button"
-                onClick={handleDownloadLrc}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-medium transition-colors"
+                onClick={() => setIsExportModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-semibold border border-white/10 transition-colors"
+                title="Pilih folder dan simpan file .lrc"
               >
-                <Download className="w-3.5 h-3.5 text-[#F27D26]" />
-                Simpan .LRC
+                <FolderDown className="w-4 h-4 text-[#F27D26]" />
+                <span>Simpan .LRC</span>
               </button>
             )}
           </div>
@@ -815,6 +935,197 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* SUB-MODAL: CHOOSE DESTINATION & EXPORT .LRC FILE */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-[#121212] border border-white/15 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#F27D26]/15 border border-[#F27D26]/30 flex items-center justify-center text-[#F27D26]">
+                  <FolderDown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white">
+                    Simpan & Tentukan Lokasi File .LRC
+                  </h3>
+                  <p className="text-[11px] text-white/50">
+                    Pilih cara dan folder penyimpanan agar file mudah ditemukan
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setExportSuccessMessage(null);
+                }}
+                className="p-2 text-white/60 hover:text-white rounded-full hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4 text-xs">
+              {/* Notification Banner */}
+              {exportSuccessMessage && (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-start gap-2.5 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed font-medium">{exportSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* File Name Editor */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-white/70">
+                  Nama File yang Akan Disimpan:
+                </label>
+                <div className="flex items-center rounded-xl bg-black/60 border border-white/10 px-3 py-2 text-xs focus-within:border-[#F27D26] transition-colors">
+                  <input
+                    type="text"
+                    value={customFileName}
+                    onChange={(e) => setCustomFileName(e.target.value)}
+                    className="flex-1 bg-transparent text-white font-mono text-xs focus:outline-none placeholder-white/30"
+                    placeholder="nama_lagu"
+                  />
+                  <span className="font-mono text-white/40 text-xs select-none">.lrc</span>
+                </div>
+              </div>
+
+              {/* Export Options Grid */}
+              <div className="space-y-2.5">
+                <div className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">
+                  Pilihan Cara Menyimpan:
+                </div>
+
+                {/* Option 1: File System Access API (Save As Folder Picker) */}
+                <button
+                  type="button"
+                  onClick={handleSaveWithPicker}
+                  className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 border border-amber-500/30 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition-transform">
+                    <FolderOpen className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-xs flex items-center gap-1.5 text-amber-300">
+                      Pilih Folder Sendiri (Save As...)
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono">
+                        Paling Direkomendasikan
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
+                      Membuka jendela sistem untuk memilih langsung folder tujuan di komputer atau HP Anda (Musik, Dokumen, SD Card, dll).
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 2: Mobile Share Sheet (Android / iOS) */}
+                <button
+                  type="button"
+                  onClick={handleShareSheet}
+                  className="w-full p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0 group-hover:scale-105 transition-transform">
+                    <Share2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-xs flex items-center gap-1.5 text-cyan-300">
+                      Simpan / Kirim Lewat Menu HP
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 font-mono">
+                        HP Android / iPhone
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
+                      Buka menu bawaan HP untuk memilih: simpan ke <strong>File Saya</strong>, Google Drive, WhatsApp, atau Catatan.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 3: Copy to Clipboard */}
+                <button
+                  type="button"
+                  onClick={handleCopyAllLrc}
+                  className="w-full p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0 group-hover:scale-105 transition-transform">
+                    {copiedLrc ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-xs flex items-center gap-1.5 text-purple-300">
+                      {copiedLrc ? 'Berhasil Disalin ke Papan Klip!' : 'Salin Seluruh Teks Lirik'}
+                    </div>
+                    <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
+                      Salin semua teks dan detik lagu dalam satu ketukan agar bisa langsung Anda tempel (paste) di aplikasi Catatan HP / Notepad.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 4: Standard Direct Download */}
+                <button
+                  type="button"
+                  onClick={handleDirectDownload}
+                  className="w-full p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-white/70 shrink-0 group-hover:scale-105 transition-transform">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-xs">
+                      Unduh Langsung ke Folder "Download"
+                    </div>
+                    <p className="text-[11px] text-white/50 mt-0.5 leading-relaxed">
+                      Mengunduh berkas langsung. Masuk ke folder <code>Download</code> / <code>Unduhan</code> bawaan browser Anda.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Preview Box */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-white/60">
+                  <span>Pratinjau Isi Berkas .LRC:</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyAllLrc}
+                    className="text-[#F27D26] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                  >
+                    {copiedLrc ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {copiedLrc ? 'Tersalin' : 'Salin Teks'}
+                  </button>
+                </div>
+                <pre className="p-3 rounded-2xl bg-black/60 border border-white/10 font-mono text-[10px] text-white/80 max-h-36 overflow-y-auto leading-relaxed select-all">
+                  {getTextToExport() || '(Belum ada lirik)'}
+                </pre>
+              </div>
+
+              {/* Android Guide tip */}
+              <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/5 text-[11px] text-white/50 space-y-1">
+                <div className="font-semibold text-white/70">📍 Panduan Mencari di HP:</div>
+                <p>
+                  Jika Anda memilih unduh, buka aplikasi <strong>"File Saya"</strong> atau <strong>"Pengelola File"</strong> di HP Anda, lalu masuk ke folder <strong>Download</strong> atau <strong>Unduhan</strong>.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setExportSuccessMessage(null);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors"
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

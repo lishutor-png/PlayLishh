@@ -205,7 +205,11 @@ export function NowPlayingFull({
       </div>
 
       {/* Main Center Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-2 overflow-y-auto z-10 max-w-md mx-auto w-full">
+      <div
+        className={`flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-2 overflow-y-auto z-10 mx-auto w-full transition-all ${
+          activeTab === 'lyrics' ? 'max-w-xl' : 'max-w-md'
+        }`}
+      >
         {/* TAB 1: VISUAL & ALBUM ART */}
         {activeTab === 'player' && (
           <div className="w-full flex flex-col items-center gap-3.5 animate-in fade-in">
@@ -267,7 +271,7 @@ export function NowPlayingFull({
 
         {/* TAB 2: FULL SYNCHRONIZED LYRICS */}
         {activeTab === 'lyrics' && (
-          <div className="w-full animate-in fade-in">
+          <div className="w-full h-full flex flex-col justify-center animate-in fade-in">
             <SyncedLyricsView
               mode="full"
               rawLyrics={track.lyrics}
@@ -276,6 +280,7 @@ export function NowPlayingFull({
               onOpenEditor={() => setIsLyricModalOpen(true)}
               onSeek={onSeek}
               trackTitle={track.title}
+              className="h-[360px] sm:h-[420px] md:h-[460px]"
             />
           </div>
         )}
