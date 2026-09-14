@@ -19,71 +19,73 @@ export function setupMediaSession(callbacks: MediaSessionCallbacks): () => void 
 
   const ms = navigator.mediaSession;
 
-  try {
-    ms.setActionHandler('play', () => {
-      callbacks.onPlay();
-    });
+  const safeSet = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+    try {
+      ms.setActionHandler(action, handler);
+    } catch {
+      // Ignore unsupported optional actions in older browsers
+    }
+  };
 
-    ms.setActionHandler('pause', () => {
-      callbacks.onPause();
-    });
+  // 1. Playback Controls
+  safeSet('play', () => {
+    callbacks.onPlay();
+  });
 
-    ms.setActionHandler('previoustrack', () => {
-      callbacks.onPrev();
-    });
+  safeSet('pause', () => {
+    callbacks.onPause();
+  });
 
-    ms.setActionHandler('nexttrack', () => {
-      callbacks.onNext();
-    });
+  safeSet('previoustrack', () => {
+    callbacks.onPrev();
+  });
 
-    ms.setActionHandler('seekto', (details) => {
-      if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
-        callbacks.onSeek(details.seekTime);
-      }
-    });
+  safeSet('nexttrack', () => {
+    callbacks.onNext();
+  });
 
-    ms.setActionHandler('seekbackward', (details) => {
-      const skip = details.seekOffset || 10;
-      // We pass relative seek through seekto handler or fallback
-      const audio = document.querySelector('audio');
-      if (audio) {
-        callbacks.onSeek(Math.max(0, audio.currentTime - skip));
-      }
-    });
+  safeSet('stop', () => {
+    callbacks.onPause();
+  });
 
-    ms.setActionHandler('seekforward', (details) => {
-      const skip = details.seekOffset || 10;
-      const audio = document.querySelector('audio');
-      if (audio) {
-        callbacks.onSeek(Math.min(audio.duration || 9999, audio.currentTime + skip));
-      }
-    });
+  // 2. Seeking & Scrubber Controls in Android Notification / iOS Lockscreen
+  safeSet('seekto', (details) => {
+    if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
+      callbacks.onSeek(details.seekTime);
+    }
+  });
 
-    ms.setActionHandler('stop', () => {
-      callbacks.onPause();
-    });
-  } catch (err) {
-    console.warn('Could not register some Media Session action handlers:', err);
-  }
+  safeSet('seekbackward', (details) => {
+    const skip = details.seekOffset || 10;
+    const audio = document.querySelector('audio');
+    if (audio) {
+      callbacks.onSeek(Math.max(0, audio.currentTime - skip));
+    }
+  });
+
+  safeSet('seekforward', (details) => {
+    const skip = details.seekOffset || 10;
+    const audio = document.querySelector('audio');
+    if (audio) {
+      callbacks.onSeek(Math.min(audio.duration || 9999, audio.currentTime + skip));
+    }
+  });
 
   return () => {
-    try {
-      ms.setActionHandler('play', null);
-      ms.setActionHandler('pause', null);
-      ms.setActionHandler('previoustrack', null);
-      ms.setActionHandler('nexttrack', null);
-      ms.setActionHandler('seekto', null);
-      ms.setActionHandler('seekbackward', null);
-      ms.setActionHandler('seekforward', null);
-      ms.setActionHandler('stop', null);
-    } catch {
-      // Ignore cleanup error
-    }
+    safeSet('play', null);
+    safeSet('pause', null);
+    safeSet('previoustrack', null);
+    safeSet('nexttrack', null);
+    safeSet('stop', null);
+    safeSet('seekto', null);
+    safeSet('seekbackward', null);
+    safeSet('seekforward', null);
   };
 }
 
 /**
  * Updates track metadata in the system Control Center and Lockscreen.
+ * Android OS MediaNotificationManager strictly requires absolute HTTP/HTTPS URLs and PNG/JPEG formats.
  */
 export function updateMediaSessionMetadata(track: AudioTrack | null): void {
   if (typeof window === 'undefined' || !('mediaSession' in navigator) || !window.MediaMetadata) {
@@ -95,28 +97,32 @@ export function updateMediaSessionMetadata(track: AudioTrack | null): void {
     return;
   }
 
-  const artworkList: MediaImage[] = [];
+  const origin = window.location.origin;
+  const defaultPngCover = `${origin}/music-cover-default.png`;
+  const pwa512Url = `${origin}/pwa-512x512.png`;
+  const pwa192Url = `${origin}/pwa-192x192.png`;
 
-  if (track.coverUrl) {
-    artworkList.push(
-      { src: track.coverUrl, sizes: '96x96', type: 'image/jpeg' },
-      { src: track.coverUrl, sizes: '128x128', type: 'image/jpeg' },
-      { src: track.coverUrl, sizes: '192x192', type: 'image/jpeg' },
-      { src: track.coverUrl, sizes: '256x256', type: 'image/jpeg' },
-      { src: track.coverUrl, sizes: '384x384', type: 'image/jpeg' },
-      { src: track.coverUrl, sizes: '512x512', type: 'image/jpeg' }
-    );
-  } else {
-    // Fallback to high-res app music player logo
-    artworkList.push(
-      { src: '/app-logo.svg', sizes: '512x512', type: 'image/svg+xml' }
-    );
+  let primaryArtwork = track.coverUrl;
+
+  // Blob URLs from imported tracks cannot be loaded by the Android System Notification daemon!
+  // In that case, we fall back to our high-resolution PNG music cover.
+  if (!primaryArtwork || primaryArtwork.startsWith('blob:')) {
+    primaryArtwork = defaultPngCover;
+  } else if (!primaryArtwork.startsWith('http://') && !primaryArtwork.startsWith('https://')) {
+    primaryArtwork = `${origin}${primaryArtwork.startsWith('/') ? '' : '/'}${primaryArtwork}`;
   }
+
+  const artworkList: MediaImage[] = [
+    { src: primaryArtwork, sizes: '512x512', type: 'image/png' },
+    { src: defaultPngCover, sizes: '512x512', type: 'image/png' },
+    { src: pwa512Url, sizes: '512x512', type: 'image/png' },
+    { src: pwa192Url, sizes: '192x192', type: 'image/png' },
+  ];
 
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
-      artist: track.artist || 'PlayLish Artist',
+      artist: track.artist || 'PlayLish Master Audio',
       album: track.album || 'PlayLish Hi-Res Audio',
       artwork: artworkList,
     });
@@ -163,6 +169,6 @@ export function updateMediaSessionPositionState(currentTime: number, duration: n
       position: validPos,
     });
   } catch {
-    // Some browsers throw if position is out of range or rapidly changing; safe to ignore
+    // Ignore harmless position state errors
   }
 }

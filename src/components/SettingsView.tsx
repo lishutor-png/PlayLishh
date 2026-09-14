@@ -318,7 +318,36 @@ export function SettingsView({
         </button>
       </div>
 
-      {/* SECTION 4: APP SPECS & HI-RES CAPABILITIES */}
+      {/* SECTION 4: SYSTEM MEDIA CONTROL & PWA LAUNCHER STATUS */}
+      <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
+            <Radio className="w-4 h-4 text-[#F27D26]" />
+            Media Kontrol & Layar Kunci HP
+          </div>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            MediaSession Aktif
+          </span>
+        </div>
+
+        <p className="text-xs text-white/70 leading-relaxed">
+          PlayLish terintegrasi dengan <span className="text-[#F27D26] font-semibold">Pusat Kontrol (Notification Drawer)</span> Android/iOS, Layar Kunci (<span className="text-white font-medium">Lockscreen</span>), dan tombol media headset/Bluetooth.
+        </p>
+
+        <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-2 text-[11px]">
+          <div className="flex items-start gap-2 text-white/80">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <span><strong>Memperbarui Logo di Tampilan HP:</strong> Hapus pintasan lama di Layar Utama HP Anda, lalu buka browser dan ketuk <em>"Tambahkan ke Layar Utama" (Add to Home Screen)</em> agar ikon PNG baru langsung terpasang.</span>
+          </div>
+          <div className="flex items-start gap-2 text-white/80">
+            <CheckCircle2 className="w-4 h-4 text-[#F27D26] shrink-0 mt-0.5" />
+            <span><strong>Koneksi Kontrol Bawaan:</strong> Kontrol media sistem beroperasi saat lagu diputar di browser langsung atau aplikasi terpasang di HP (bukan dalam jendela preview editor).</span>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 5: APP SPECS & HI-RES CAPABILITIES */}
       <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
         <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
           <Info className="w-4 h-4 text-[#F27D26]" />

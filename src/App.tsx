@@ -404,26 +404,37 @@ export default function App() {
     }
   }, [settings.shuffle, originalQueue, tracks, queue, currentTrack, handleUpdateSettings, handleDisableShuffle]);
 
-  const togglePlay = async () => {
+  const handlePlay = useCallback(async () => {
     if (!audioRef.current || !currentTrack) return;
     audioEngine.ensureContextRunning();
 
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+    if (!audioRef.current.src || audioRef.current.src === '') {
+      await loadTrackSource(currentTrack, true);
     } else {
-      if (!audioRef.current.src || audioRef.current.src === '') {
-        await loadTrackSource(currentTrack, true);
-      } else {
-        try {
-          await audioRef.current.play();
-          setIsPlaying(true);
-        } catch (err) {
-          console.warn('Playback error:', err);
-        }
+      try {
+        await audioRef.current.play();
+        setIsPlaying(true);
+        updateMediaSessionPlaybackState(true);
+      } catch (err) {
+        console.warn('Playback error:', err);
       }
     }
-  };
+  }, [currentTrack, loadTrackSource]);
+
+  const handlePause = useCallback(() => {
+    if (!audioRef.current) return;
+    audioRef.current.pause();
+    setIsPlaying(false);
+    updateMediaSessionPlaybackState(false);
+  }, []);
+
+  const togglePlay = useCallback(async () => {
+    if (isPlaying) {
+      handlePause();
+    } else {
+      await handlePlay();
+    }
+  }, [isPlaying, handlePause, handlePlay]);
 
   const handleNextTrack = useCallback(() => {
     if (queue.length === 0 || !currentTrack) return;
@@ -506,14 +517,14 @@ export default function App() {
   // MediaSession API integration for Control Center (Pusat Kontrol), Lockscreen, Notifications & Headset keys
   useEffect(() => {
     const cleanup = setupMediaSession({
-      onPlay: togglePlay,
-      onPause: togglePlay,
+      onPlay: handlePlay,
+      onPause: handlePause,
       onPrev: handlePrevTrack,
       onNext: handleNextTrack,
       onSeek: handleSeek,
     });
     return cleanup;
-  }, [togglePlay, handlePrevTrack, handleNextTrack, handleSeek]);
+  }, [handlePlay, handlePause, handlePrevTrack, handleNextTrack, handleSeek]);
 
   // Update Media Session track metadata (Title, Artist, Album, Multi-res Artworks)
   useEffect(() => {
@@ -742,14 +753,22 @@ export default function App() {
 
   return (
     <div className="flex justify-center h-screen h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#020202] text-white selection:bg-[#F27D26]/30">
-      {/* Hidden Native Audio Element bound to AudioEngine */}
+      {/* Native Audio Element bound to AudioEngine & System MediaSession */}
       <audio
         ref={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleEnded}
-        preload="metadata"
-        className="hidden"
+        onPlay={() => {
+          setIsPlaying(true);
+          updateMediaSessionPlaybackState(true);
+        }}
+        onPause={() => {
+          setIsPlaying(false);
+          updateMediaSessionPlaybackState(false);
+        }}
+        preload="auto"
+        className="fixed -top-[9999px] -left-[9999px] w-1 h-1 opacity-0 pointer-events-none"
       />
 
       {/* Main Android App Container */}
