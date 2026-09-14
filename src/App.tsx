@@ -24,6 +24,12 @@ import {
 } from './services/db';
 import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
 import { audioEngine, EQ_PRESETS } from './services/audioEngine';
+import {
+  setupMediaSession,
+  updateMediaSessionMetadata,
+  updateMediaSessionPlaybackState,
+  updateMediaSessionPositionState,
+} from './services/mediaSession';
 import { AndroidStatusBar } from './components/AndroidStatusBar';
 import { BottomNav } from './components/BottomNav';
 import { TracksView } from './components/TracksView';
@@ -497,48 +503,34 @@ export default function App() {
     }
   };
 
-  // MediaSession API for Android background playback, lock screen controls, and notifications
+  // MediaSession API integration for Control Center (Pusat Kontrol), Lockscreen, Notifications & Headset keys
   useEffect(() => {
-    if (!('mediaSession' in navigator) || !currentTrack) return;
+    const cleanup = setupMediaSession({
+      onPlay: togglePlay,
+      onPause: togglePlay,
+      onPrev: handlePrevTrack,
+      onNext: handleNextTrack,
+      onSeek: handleSeek,
+    });
+    return cleanup;
+  }, [togglePlay, handlePrevTrack, handleNextTrack, handleSeek]);
 
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist,
-        album: currentTrack.album,
-        artwork: [
-          {
-            src: currentTrack.coverUrl || '/app-logo.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-          },
-          {
-            src: '/favicon.svg',
-            sizes: '96x96',
-            type: 'image/svg+xml',
-          },
-        ],
-      });
+  // Update Media Session track metadata (Title, Artist, Album, Multi-res Artworks)
+  useEffect(() => {
+    updateMediaSessionMetadata(currentTrack);
+  }, [currentTrack]);
 
-      navigator.mediaSession.setActionHandler('play', () => {
-        togglePlay();
-      });
-      navigator.mediaSession.setActionHandler('pause', () => {
-        togglePlay();
-      });
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        handlePrevTrack();
-      });
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        handleNextTrack();
-      });
-      navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (details.seekTime !== undefined) {
-          handleSeek(details.seekTime);
-        }
-      });
-    } catch (_) {}
-  }, [currentTrack, isPlaying, handlePrevTrack, handleNextTrack, togglePlay, handleSeek]);
+  // Synchronize Media Session playback state (Playing vs Paused) in Control Center
+  useEffect(() => {
+    updateMediaSessionPlaybackState(isPlaying);
+  }, [isPlaying]);
+
+  // Synchronize Media Session position state (Seekbar progress) in Control Center
+  useEffect(() => {
+    if (duration > 0) {
+      updateMediaSessionPositionState(currentTime, duration);
+    }
+  }, [currentTime, duration]);
 
   // Toggle favorite
   const handleToggleFavorite = async (trackId: string) => {
@@ -749,7 +741,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex justify-center min-h-screen bg-[#020202] text-white selection:bg-[#F27D26]/30">
+    <div className="flex justify-center h-screen h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#020202] text-white selection:bg-[#F27D26]/30">
       {/* Hidden Native Audio Element bound to AudioEngine */}
       <audio
         ref={audioRef}
@@ -763,7 +755,7 @@ export default function App() {
       {/* Main Android App Container */}
       <main
         id="playlish-app-container"
-        className="w-full max-w-lg min-h-screen bg-[#050505] bg-immersive-radial border-x border-white/5 shadow-2xl flex flex-col relative overflow-hidden"
+        className="w-full max-w-lg h-full max-h-[100dvh] bg-[#050505] bg-immersive-radial border-x border-white/5 shadow-2xl flex flex-col relative overflow-hidden select-none"
       >
         {/* Android Top Status Bar */}
         <AndroidStatusBar
@@ -774,8 +766,8 @@ export default function App() {
           onOpenSettings={() => setActiveTab('settings')}
         />
 
-        {/* Tab Views */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Tab Views - Isolated Scroll Area so bottom player never scrolls away */}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
           {activeTab === 'tracks' && (
             <TracksView
               tracks={tracks}
@@ -861,29 +853,32 @@ export default function App() {
           )}
         </div>
 
-        {/* Collapsed Bottom Mini Player */}
-        {currentTrack && !isFullPlayerOpen && (
-          <NowPlayingBar
-            track={currentTrack}
-            isPlaying={isPlaying}
-            currentTime={currentTime}
-            duration={duration}
-            settings={settings}
-            onTogglePlay={togglePlay}
-            onPrev={handlePrevTrack}
-            onNext={handleNextTrack}
-            onToggleFavorite={handleToggleFavorite}
-            onExpand={() => setIsFullPlayerOpen(true)}
-            onDisableShuffle={handleDisableShuffle}
-          />
-        )}
+        {/* Pinned Bottom Bar: Mini Player & Navigation Bar Always In View */}
+        <div className="shrink-0 w-full z-40 bg-[#0A0A0A]/95 backdrop-blur-2xl border-t border-white/10 flex flex-col">
+          {currentTrack && !isFullPlayerOpen && (
+            <NowPlayingBar
+              track={currentTrack}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+              duration={duration}
+              settings={settings}
+              onTogglePlay={togglePlay}
+              onPrev={handlePrevTrack}
+              onNext={handleNextTrack}
+              onSeek={handleSeek}
+              onToggleFavorite={handleToggleFavorite}
+              onExpand={() => setIsFullPlayerOpen(true)}
+              onDisableShuffle={handleDisableShuffle}
+            />
+          )}
 
-        {/* Android Bottom Navigation Bar */}
-        <BottomNav
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          playlistCount={playlists.length}
-        />
+          {/* Android Bottom Navigation Bar */}
+          <BottomNav
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            playlistCount={playlists.length}
+          />
+        </div>
 
         {/* Fullscreen Expandable Now Playing View */}
         {currentTrack && isFullPlayerOpen && (
