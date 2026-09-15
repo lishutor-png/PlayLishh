@@ -20,6 +20,10 @@ export interface AudioTrack {
   lyrics?: string;
   genre?: string;
   colorHex?: string;
+  fileName?: string; // Nama berkas audio asli (misal: lagu.mp3)
+  filePath?: string; // Lokasi / path folder berkas (misal: Musik/lagu.mp3)
+  hasMatchedLrc?: boolean; // True jika file .lrc berhasil dicocokkan otomatis
+  lrcFileName?: string; // Nama file .lrc yang terhubung (misal: lagu.lrc)
 }
 
 export interface Playlist {

@@ -8,7 +8,31 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// API: Direct file download for .LRC files (bypasses browser iframe blob sandbox restrictions)
+app.all('/api/download-lrc', (req, res) => {
+  const title = (req.body?.title || req.query?.title || 'lirik') as string;
+  const content = (req.body?.content || req.query?.content || '') as string;
+
+  if (!content) {
+    return res.status(400).send('Lirik tidak boleh kosong.');
+  }
+
+  const safeTitle = title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
+  const filename = safeTitle.toLowerCase().endsWith('.lrc') ? safeTitle : `${safeTitle}.lrc`;
+
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+  );
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.send(content);
+});
 
 // Lazy-initialized Google GenAI client
 let aiClient: GoogleGenAI | null = null;

@@ -14,6 +14,7 @@ import {
   Disc,
   Shuffle,
   RotateCcw,
+  HardDrive,
 } from 'lucide-react';
 import { Playlist, AudioTrack, PlaybackSource } from '../types';
 import { AppLogo } from './AppLogo';
@@ -240,8 +241,8 @@ export function PlaylistView({
                             referrerPolicy="no-referrer"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-white/40">
-                            <Music className="w-5 h-5" />
+                          <div className="w-full h-full flex items-center justify-center p-1 bg-[#0d0d10]">
+                            <AppLogo size="sm" variant="icon-only" isPlaying={isCurrent && isPlaying} />
                           </div>
                         )}
                         {isCurrent && isPlaying && (
@@ -271,6 +272,30 @@ export function PlaylistView({
                         <p className="text-[11px] text-white/50 truncate mt-0.5">
                           {track.artist} • {track.album}
                         </p>
+                        <div className="flex items-center gap-2 mt-1 text-[10px] text-white/45 truncate">
+                          {(track.filePath || track.fileName) && (
+                            <span
+                              className="truncate flex items-center gap-1 font-mono text-white/40 max-w-[150px] sm:max-w-[200px]"
+                              title={`Lokasi berkas: ${track.filePath || track.fileName}`}
+                            >
+                              <HardDrive className="w-3 h-3 text-white/30 shrink-0" />
+                              <span className="truncate">{track.filePath || track.fileName}</span>
+                            </span>
+                          )}
+                          {track.hasMatchedLrc || track.lyrics ? (
+                            <span
+                              className="flex items-center gap-1 text-[9px] font-semibold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.2 rounded border border-emerald-500/30 shrink-0"
+                              title={
+                                track.lrcFileName
+                                  ? `Lirik otomatis dari: ${track.lrcFileName}`
+                                  : 'Lirik lagu tersinkronisasi'
+                              }
+                            >
+                              <Sparkles className="w-2.5 h-2.5" />
+                              <span>.LRC Terhubung</span>
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
@@ -312,14 +337,16 @@ export function PlaylistView({
         /* PLAYLISTS OVERVIEW / LIST */
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-white flex items-center gap-2 tracking-tight">
-                <ListMusic className="w-5 h-5 text-[#F27D26]" />
-                PlayLish Saya
-              </h1>
-              <p className="text-xs text-white/50">
-                Kelola daftar putar lagu favorit berkualitas tinggi Anda
-              </p>
+            <div className="flex items-center gap-3">
+              <AppLogo size="md" variant="icon-only" isPlaying={isPlaying} />
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-tight">
+                  PlayLish Saya
+                </h1>
+                <p className="text-xs text-white/50">
+                  Kelola daftar putar lagu favorit berkualitas tinggi Anda
+                </p>
+              </div>
             </div>
             <button
               onClick={() => setIsCreating(true)}

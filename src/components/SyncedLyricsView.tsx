@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Sparkles, Edit3, Music2, FileText, Type, ChevronRight } from 'lucide-react';
+import { Sparkles, Edit3, Music2, FileText, Type, ChevronRight, Download, Check, FolderDown } from 'lucide-react';
 import { parseLyrics, getActiveLyricIndex, LyricLine } from '../services/lyricParser';
 
 export type LyricFontSize = 'normal' | 'large' | 'xlarge';
@@ -52,6 +52,68 @@ export const SyncedLyricsView: React.FC<SyncedLyricsViewProps> = ({
   const activeIndex = useMemo(() => {
     return getActiveLyricIndex(lines, currentTime);
   }, [lines, currentTime]);
+
+  const [downloaded, setDownloaded] = useState(false);
+
+  // Fast direct download of current .lrc
+  const handleDownloadLrc = () => {
+    if (!rawLyrics) return;
+    const cleanName = (trackTitle || 'lirik').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
+    const fileName = cleanName.toLowerCase().endsWith('.lrc') ? cleanName : `${cleanName}.lrc`;
+
+    try {
+      let hiddenIframe = document.getElementById('lrc_download_frame') as HTMLIFrameElement | null;
+      if (!hiddenIframe) {
+        hiddenIframe = document.createElement('iframe');
+        hiddenIframe.id = 'lrc_download_frame';
+        hiddenIframe.name = 'lrc_download_frame';
+        hiddenIframe.style.display = 'none';
+        document.body.appendChild(hiddenIframe);
+      }
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/download-lrc';
+      form.target = 'lrc_download_frame';
+
+      const titleInput = document.createElement('input');
+      titleInput.type = 'hidden';
+      titleInput.name = 'title';
+      titleInput.value = fileName;
+      form.appendChild(titleInput);
+
+      const contentInput = document.createElement('input');
+      contentInput.type = 'hidden';
+      contentInput.name = 'content';
+      contentInput.value = rawLyrics;
+      form.appendChild(contentInput);
+
+      document.body.appendChild(form);
+      form.submit();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(form);
+        } catch {
+          // ignore
+        }
+      }, 1000);
+
+      setDownloaded(true);
+      setTimeout(() => setDownloaded(false), 3000);
+    } catch {
+      const blob = new Blob([rawLyrics], { type: 'application/octet-stream;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setDownloaded(true);
+      setTimeout(() => setDownloaded(false), 3000);
+    }
+  };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
@@ -198,6 +260,23 @@ export const SyncedLyricsView: React.FC<SyncedLyricsViewProps> = ({
               A++
             </button>
           </div>
+
+          {/* Quick Simpan .LRC button if lyrics exist */}
+          {rawLyrics && (
+            <button
+              type="button"
+              onClick={handleDownloadLrc}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                downloaded
+                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/80 hover:text-white'
+              }`}
+              title="Unduh berkas .lrc langsung ke perangkat Anda"
+            >
+              {downloaded ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <FolderDown className="w-3.5 h-3.5 text-[#F27D26]" />}
+              <span>{downloaded ? 'Tersimpan!' : 'Simpan .LRC'}</span>
+            </button>
+          )}
 
           <button
             type="button"

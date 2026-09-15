@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { HardDriveDownload, WifiOff, CheckCircle2, Trash2, Music, Play, ShieldCheck, Database, AlertTriangle } from 'lucide-react';
 import { AudioTrack } from '../types';
+import { AppLogo } from './AppLogo';
 
 interface OfflineViewProps {
   tracks: AudioTrack[];
@@ -124,8 +125,8 @@ export function OfflineView({
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-white/40">
-                      <Music className="w-5 h-5" />
+                    <div className="w-full h-full flex items-center justify-center p-1 bg-[#0d0d10]">
+                      <AppLogo size="sm" variant="icon-only" isPlaying={isCurrent && isPlaying} />
                     </div>
                   )}
                 </div>

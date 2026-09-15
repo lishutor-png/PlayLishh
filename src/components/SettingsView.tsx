@@ -338,7 +338,7 @@ export function SettingsView({
         <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-2 text-[11px]">
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span><strong>Memperbarui Logo di Tampilan HP:</strong> Hapus pintasan lama di Layar Utama HP Anda, lalu buka browser dan ketuk <em>"Tambahkan ke Layar Utama" (Add to Home Screen)</em> agar ikon PNG baru langsung terpasang.</span>
+            <span><strong>Memperbarui Logo di Tampilan HP:</strong> Hapus pintasan lama di Layar Utama HP Anda, lalu buka browser dan ketuk <em>"Tambahkan ke Layar Utama" (Add to Home Screen)</em> agar ikon piringan hitam dengan tombol play oranye langsung terpasang.</span>
           </div>
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-[#F27D26] shrink-0 mt-0.5" />

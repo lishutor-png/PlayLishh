@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Heart, Music, Shuffle, Volume2 } from 'lucide-react';
 import { AudioTrack, AudioSettings } from '../types';
+import { AppLogo } from './AppLogo';
 
 interface NowPlayingBarProps {
   track: AudioTrack;
@@ -87,8 +88,8 @@ export function NowPlayingBar({
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-white/40">
-                  <Music className="w-5 h-5" />
+                <div className="w-full h-full flex items-center justify-center p-1 bg-[#0e0e10]">
+                  <AppLogo size="sm" variant="icon-only" isPlaying={isPlaying} />
                 </div>
               )}
               {isPlaying && (

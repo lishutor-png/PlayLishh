@@ -274,22 +274,138 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
     }
   }, [track.id, track.title]);
 
-  // Helper to get formatted text for export
+  // Helper to get formatted text for export with universal fallback
   const getTextToExport = useCallback(() => {
-    if (syncLines.length > 0) return formatLrc(syncLines);
-    return lyricsText.trim();
-  }, [syncLines, lyricsText]);
+    if (syncLines && syncLines.length > 0) {
+      return formatLrc(syncLines);
+    }
+    if (lyricsText && lyricsText.trim()) {
+      return lyricsText.trim();
+    }
+    if (plainInputText && plainInputText.trim()) {
+      const rawLines = plainInputText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (rawLines.length > 0) {
+        const dur = Math.max(30, duration || track.duration || 180);
+        const step = Math.max(2, (dur - 8) / rawLines.length);
+        return rawLines
+          .map((lineText, idx) => {
+            const t = Math.round((3 + idx * step) * 10) / 10;
+            const m = Math.floor(t / 60);
+            const s = Math.floor(t % 60);
+            const ms = Math.floor((t % 1) * 10);
+            return `[${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ms}0] ${lineText}`;
+          })
+          .join('\n');
+      }
+    }
+    if (track.lyrics && track.lyrics.trim()) {
+      return track.lyrics.trim();
+    }
+    return '';
+  }, [syncLines, lyricsText, plainInputText, track.lyrics, duration, track.duration]);
+
+  // Guaranteed file download execution: Uses server endpoint /api/download-lrc to bypass iframe sandbox limits
+  const executeFileDownload = (rawFilename: string, text: string) => {
+    const cleanName = rawFilename.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
+    const fileName = cleanName.toLowerCase().endsWith('.lrc') ? cleanName : `${cleanName}.lrc`;
+
+    // 1. PRIMARY: Submit POST form to /api/download-lrc targeting a hidden iframe.
+    // This triggers standard browser file download without iframe sandbox restrictions!
+    try {
+      let hiddenIframe = document.getElementById('lrc_download_frame') as HTMLIFrameElement | null;
+      if (!hiddenIframe) {
+        hiddenIframe = document.createElement('iframe');
+        hiddenIframe.id = 'lrc_download_frame';
+        hiddenIframe.name = 'lrc_download_frame';
+        hiddenIframe.style.display = 'none';
+        document.body.appendChild(hiddenIframe);
+      }
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/download-lrc';
+      form.target = 'lrc_download_frame';
+
+      const titleInput = document.createElement('input');
+      titleInput.type = 'hidden';
+      titleInput.name = 'title';
+      titleInput.value = fileName;
+      form.appendChild(titleInput);
+
+      const contentInput = document.createElement('input');
+      contentInput.type = 'hidden';
+      contentInput.name = 'content';
+      contentInput.value = text;
+      form.appendChild(contentInput);
+
+      document.body.appendChild(form);
+      form.submit();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(form);
+        } catch {
+          // ignore
+        }
+      }, 1000);
+
+      setExportSuccessMessage(`File "${fileName}" berhasil diunduh ke folder Download/Unduhan perangkat Anda!`);
+      setStatusMessage({
+        type: 'success',
+        text: `File "${fileName}" sedang diunduh. Cek folder Download di HP/Komputer Anda.`,
+      });
+      return true;
+    } catch (e) {
+      console.warn('Form POST download fallback:', e);
+    }
+
+    // 2. SECONDARY FALLBACK: Blob + <a> download
+    try {
+      const blob = new Blob([text], { type: 'application/octet-stream;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setExportSuccessMessage(`File "${fileName}" sedang diunduh ke folder Download.`);
+      return true;
+    } catch (blobErr) {
+      console.warn('Blob download failed:', blobErr);
+    }
+
+    // 3. TERTIARY FALLBACK: Data URI
+    try {
+      const dataUri = `data:application/octet-stream;charset=utf-8,${encodeURIComponent(text)}`;
+      const link = document.createElement('a');
+      link.href = dataUri;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setExportSuccessMessage(`File "${fileName}" diunduh melalui data URL.`);
+      return true;
+    } catch (dataErr) {
+      console.error('All download methods failed:', dataErr);
+      return false;
+    }
+  };
 
   // Option 1: File System Access API - Lets user choose the EXACT directory on PC / supported Chrome
   const handleSaveWithPicker = async () => {
     const text = getTextToExport();
     if (!text) {
-      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk disimpan.' });
+      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk disimpan. Silakan ketik atau buat lirik terlebih dahulu.' });
       return;
     }
     const fileName = `${customFileName.trim() || 'lirik'}.lrc`;
 
-    if ('showSaveFilePicker' in window) {
+    // Try native picker if available in top window
+    if ('showSaveFilePicker' in window && window.self === window.top) {
       try {
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: fileName,
@@ -311,12 +427,12 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
         return;
       } catch (err: any) {
         if (err?.name === 'AbortError') return; // User cancelled the picker
-        console.warn('showSaveFilePicker error:', err);
+        console.warn('showSaveFilePicker not supported or restricted, falling back to direct download:', err);
       }
     }
 
-    // If File System Access API is not supported in this browser, fall back to share or direct download
-    handleDirectDownload();
+    // Direct download into Downloads folder (guaranteed to trigger file save)
+    executeFileDownload(fileName, text);
   };
 
   // Option 2: Mobile Share Sheet (Android / iOS) - lets user send/save directly to "File Saya", Google Drive, WhatsApp, etc.
@@ -343,11 +459,25 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
-      console.warn('Share error:', err);
+      console.warn('Share file error:', err);
     }
 
-    // If not supported, fallback to direct download
-    handleDirectDownload();
+    // Try text share if file share not supported
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${track.title} - Lirik LRC`,
+          text: text,
+        });
+        setExportSuccessMessage(`Teks lirik berhasil dibagikan ke menu HP Anda!`);
+        return;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+    }
+
+    // Direct download fallback
+    executeFileDownload(fileName, text);
   };
 
   // Option 3: Standard Browser Download to Downloads folder
@@ -357,33 +487,23 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
       setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk diunduh.' });
       return;
     }
-
-    const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const safeTitle = customFileName.trim() || track.title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() || 'lirik';
-    link.href = url;
-    link.download = `${safeTitle}.lrc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    setExportSuccessMessage(`File "${safeTitle}.lrc" diunduh ke folder Download perangkat Anda.`);
-    setStatusMessage({
-      type: 'info',
-      text: `File "${safeTitle}.lrc" berhasil diunduh. Cek folder Download / Unduhan di HP/Komputer Anda.`,
-    });
+    executeFileDownload(safeTitle, textToDownload);
   };
 
   // Option 4: Copy to clipboard so user can paste into notes app
   const handleCopyAllLrc = async () => {
     const text = getTextToExport();
-    if (!text) return;
+    if (!text) {
+      setStatusMessage({ type: 'error', text: 'Tidak ada lirik untuk disalin.' });
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopiedLrc(true);
       setTimeout(() => setCopiedLrc(false), 2500);
       setExportSuccessMessage('Seluruh teks lirik berhasil disalin ke papan klip (clipboard)!');
+      setStatusMessage({ type: 'success', text: 'Seluruh teks lirik berhasil disalin ke clipboard!' });
     } catch {
       setStatusMessage({ type: 'info', text: 'Silakan pilih dan salin teks langsung dari kotak editor.' });
     }
@@ -912,17 +1032,26 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
             >
               Tutup
             </button>
-            {lyricsText && (
-              <button
-                type="button"
-                onClick={() => setIsExportModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-semibold border border-white/10 transition-colors"
-                title="Pilih folder dan simpan file .lrc"
-              >
-                <FolderDown className="w-4 h-4 text-[#F27D26]" />
-                <span>Simpan .LRC</span>
-              </button>
-            )}
+            {/* Simpan .LRC button: Always visible so user can easily export their lyrics anytime */}
+            <button
+              type="button"
+              onClick={() => {
+                const text = getTextToExport();
+                if (!text) {
+                  setStatusMessage({
+                    type: 'error',
+                    text: 'Ketik, tempel, atau sinkronkan lirik terlebih dahulu sebelum menyimpan berkas .LRC.',
+                  });
+                  return;
+                }
+                setIsExportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F27D26]/20 hover:bg-[#F27D26]/30 text-[#F27D26] hover:text-orange-300 text-xs font-bold border border-[#F27D26]/40 transition-all cursor-pointer shadow-sm"
+              title="Simpan atau ekspor berkas lirik .lrc"
+            >
+              <FolderDown className="w-4 h-4" />
+              <span>Simpan .LRC</span>
+            </button>
           </div>
 
           <button
@@ -997,32 +1126,54 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
               {/* Export Options Grid */}
               <div className="space-y-2.5">
                 <div className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">
-                  Pilihan Cara Menyimpan:
+                  Pilihan Cara Menyimpan Berkas:
                 </div>
 
-                {/* Option 1: File System Access API (Save As Folder Picker) */}
+                {/* Option 1: Direct File Download (Guaranteed working via server endpoint) */}
+                <button
+                  type="button"
+                  onClick={handleDirectDownload}
+                  className="w-full p-4 rounded-2xl bg-gradient-to-r from-[#F27D26]/20 via-[#d65d07]/20 to-[#F27D26]/10 hover:from-[#F27D26]/30 hover:to-[#d65d07]/30 border border-[#F27D26]/40 text-left transition-all group flex items-start gap-3.5 cursor-pointer shadow-md"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[#F27D26] text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-white text-xs flex items-center gap-1.5 text-orange-300">
+                      Unduh Berkas .LRC Sekarang
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#F27D26] text-white font-bold">
+                        Paling Cepat & Pasti
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/80 mt-0.5 leading-relaxed">
+                      Langsung mengunduh file <strong>{customFileName.trim() || 'lirik'}.lrc</strong> ke folder <code>Download</code> / <code>Unduhan</code> di HP atau komputer Anda tanpa batasan.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 2: File System Access API (Save As Folder Picker) */}
                 <button
                   type="button"
                   onClick={handleSaveWithPicker}
-                  className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-orange-500/15 hover:from-amber-500/25 hover:to-orange-500/25 border border-amber-500/30 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
+                  className="w-full p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition-transform">
-                    <FolderOpen className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition-transform">
+                    <FolderOpen className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-white text-xs flex items-center gap-1.5 text-amber-300">
                       Pilih Folder Sendiri (Save As...)
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono">
-                        Paling Direkomendasikan
+                        Komputer / Chrome
                       </span>
                     </div>
                     <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
-                      Membuka jendela sistem untuk memilih langsung folder tujuan di komputer atau HP Anda (Musik, Dokumen, SD Card, dll).
+                      Pilih folder khusus yang Anda inginkan (misal folder Musik Anda). Jika dibatasi browser, otomatis dialihkan ke folder Download.
                     </p>
                   </div>
                 </button>
 
-                {/* Option 2: Mobile Share Sheet (Android / iOS) */}
+                {/* Option 3: Mobile Share Sheet (Android / iOS) */}
                 <button
                   type="button"
                   onClick={handleShareSheet}
@@ -1044,7 +1195,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                   </div>
                 </button>
 
-                {/* Option 3: Copy to Clipboard */}
+                {/* Option 4: Copy to Clipboard */}
                 <button
                   type="button"
                   onClick={handleCopyAllLrc}
@@ -1058,26 +1209,7 @@ export const LyricEditorModal: React.FC<LyricEditorModalProps> = ({
                       {copiedLrc ? 'Berhasil Disalin ke Papan Klip!' : 'Salin Seluruh Teks Lirik'}
                     </div>
                     <p className="text-[11px] text-white/70 mt-0.5 leading-relaxed">
-                      Salin semua teks dan detik lagu dalam satu ketukan agar bisa langsung Anda tempel (paste) di aplikasi Catatan HP / Notepad.
-                    </p>
-                  </div>
-                </button>
-
-                {/* Option 4: Standard Direct Download */}
-                <button
-                  type="button"
-                  onClick={handleDirectDownload}
-                  className="w-full p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-left transition-all group flex items-start gap-3.5 cursor-pointer"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-white/70 shrink-0 group-hover:scale-105 transition-transform">
-                    <Download className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-white text-xs">
-                      Unduh Langsung ke Folder "Download"
-                    </div>
-                    <p className="text-[11px] text-white/50 mt-0.5 leading-relaxed">
-                      Mengunduh berkas langsung. Masuk ke folder <code>Download</code> / <code>Unduhan</code> bawaan browser Anda.
+                      Salin seluruh lirik + timestamp dalam 1 ketukan untuk langsung ditempel di Notepad atau aplikasi Catatan HP.
                     </p>
                   </div>
                 </button>

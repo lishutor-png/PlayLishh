@@ -28,8 +28,26 @@ export async function extractAudioMetadata(file: File | Blob): Promise<Extracted
       view.getUint8(2) === 0x33    // '3'
     ) {
       parseID3v2(headerSlice, result);
+    } else if (
+      headerSlice.byteLength >= 4 &&
+      view.getUint8(0) === 0x66 && // 'f'
+      view.getUint8(1) === 0x4c && // 'L'
+      view.getUint8(2) === 0x61 && // 'a'
+      view.getUint8(3) === 0x43    // 'C'
+    ) {
+      // 2. Check FLAC header
+      parseFlac(headerSlice, result);
+    } else if (
+      headerSlice.byteLength >= 12 &&
+      view.getUint8(0) === 0x52 && // 'R'
+      view.getUint8(1) === 0x49 && // 'I'
+      view.getUint8(2) === 0x46 && // 'F'
+      view.getUint8(3) === 0x46    // 'F'
+    ) {
+      // 3. Check WAV RIFF
+      parseWav(headerSlice, result);
     } else {
-      // 2. Check MP4 / M4A (starts with 'ftyp' or has 'ftyp' at offset 4)
+      // 4. Check MP4 / M4A (starts with 'ftyp' or has 'ftyp' at offset 4)
       const isMp4 = checkIsMp4(view);
       if (isMp4) {
         parseMp4(headerSlice, result);
@@ -353,3 +371,157 @@ function decodeMp4DataString(buffer: ArrayBuffer, start: number, end: number): s
     return '';
   }
 }
+
+/**
+ * Parse native FLAC metadata blocks (STREAMINFO, VORBIS_COMMENT, PICTURE)
+ */
+function parseFlac(buffer: ArrayBuffer, result: ExtractedAudioMetadata): void {
+  const view = new DataView(buffer);
+  let offset = 4; // Skip 'fLaC' marker
+
+  while (offset + 4 <= buffer.byteLength) {
+    const headerByte = view.getUint8(offset);
+    const isLast = (headerByte & 0x80) !== 0;
+    const blockType = headerByte & 0x7f;
+    const blockLength =
+      (view.getUint8(offset + 1) << 16) |
+      (view.getUint8(offset + 2) << 8) |
+      view.getUint8(offset + 3);
+
+    offset += 4;
+    if (offset + blockLength > buffer.byteLength) break;
+
+    // Block type 4: VORBIS_COMMENT (Tags)
+    if (blockType === 4) {
+      parseVorbisComment(buffer, offset, blockLength, result);
+    }
+    // Block type 6: PICTURE (Cover art)
+    else if (blockType === 6 && !result.coverUrl) {
+      parseFlacPicture(buffer, offset, blockLength, result);
+    }
+
+    offset += blockLength;
+    if (isLast) break;
+  }
+}
+
+/**
+ * Parse Vorbis comments (used in FLAC and OGG)
+ */
+function parseVorbisComment(
+  buffer: ArrayBuffer,
+  offset: number,
+  length: number,
+  result: ExtractedAudioMetadata
+): void {
+  const view = new DataView(buffer, offset, length);
+  let pos = 0;
+  if (length < 8) return;
+
+  // Vendor length (32-bit LE)
+  const vendorLength = view.getUint32(pos, true);
+  pos += 4 + vendorLength;
+
+  if (pos + 4 > length) return;
+  const userCommentListLength = view.getUint32(pos, true);
+  pos += 4;
+
+  const decoder = new TextDecoder('utf-8');
+
+  for (let i = 0; i < userCommentListLength && pos + 4 <= length; i++) {
+    const commentLength = view.getUint32(pos, true);
+    pos += 4;
+    if (pos + commentLength > length) break;
+
+    const commentBytes = new Uint8Array(buffer, offset + pos, commentLength);
+    pos += commentLength;
+
+    const commentStr = decoder.decode(commentBytes);
+    const eqIdx = commentStr.indexOf('=');
+    if (eqIdx > 0) {
+      const fieldName = commentStr.substring(0, eqIdx).toUpperCase();
+      const fieldValue = commentStr.substring(eqIdx + 1).trim();
+
+      if (fieldName === 'TITLE' && !result.title) {
+        result.title = fieldValue;
+      } else if ((fieldName === 'ARTIST' || fieldName === 'PERFORMER') && !result.artist) {
+        result.artist = fieldValue;
+      } else if (fieldName === 'ALBUM' && !result.album) {
+        result.album = fieldValue;
+      } else if (fieldName === 'GENRE' && !result.genre) {
+        result.genre = fieldValue;
+      } else if ((fieldName === 'DATE' || fieldName === 'YEAR') && !result.year) {
+        result.year = fieldValue;
+      } else if ((fieldName === 'LYRICS' || fieldName === 'UNSYNCEDLYRICS') && !result.lyrics) {
+        result.lyrics = fieldValue;
+      }
+    }
+  }
+}
+
+/**
+ * Parse FLAC Picture block (METADATA_BLOCK_PICTURE)
+ */
+function parseFlacPicture(
+  buffer: ArrayBuffer,
+  offset: number,
+  length: number,
+  result: ExtractedAudioMetadata
+): void {
+  try {
+    const view = new DataView(buffer, offset, length);
+    let pos = 4; // Skip picture type (32-bit BE)
+
+    // MIME type length (32-bit BE)
+    const mimeLength = view.getUint32(pos, false);
+    pos += 4;
+    const mimeBytes = new Uint8Array(buffer, offset + pos, mimeLength);
+    const mime = new TextDecoder('ascii').decode(mimeBytes) || 'image/jpeg';
+    pos += mimeLength;
+
+    // Description length (32-bit BE)
+    const descLength = view.getUint32(pos, false);
+    pos += 4 + descLength;
+
+    // Skip width(4), height(4), depth(4), colors(4) = 16 bytes
+    pos += 16;
+
+    // Picture data length (32-bit BE)
+    const dataLength = view.getUint32(pos, false);
+    pos += 4;
+
+    if (pos + dataLength <= length) {
+      const imgBytes = new Uint8Array(buffer, offset + pos, dataLength);
+      result.coverUrl = uint8ArrayToDataUrl(imgBytes, mime);
+    }
+  } catch (e) {
+    console.warn('Could not parse FLAC picture:', e);
+  }
+}
+
+/**
+ * Parse RIFF WAV INFO tags or embedded ID3 chunks
+ */
+function parseWav(buffer: ArrayBuffer, result: ExtractedAudioMetadata): void {
+  const view = new DataView(buffer);
+  let pos = 12; // Skip 'RIFF' + size + 'WAVE'
+
+  while (pos + 8 <= buffer.byteLength) {
+    const chunkId = String.fromCharCode(
+      view.getUint8(pos),
+      view.getUint8(pos + 1),
+      view.getUint8(pos + 2),
+      view.getUint8(pos + 3)
+    );
+    const chunkSize = view.getUint32(pos + 4, true);
+    pos += 8;
+
+    if (chunkId === 'id3 ' || chunkId === 'ID3 ') {
+      // Embedded ID3 in WAV
+      parseID3v2(buffer.slice(pos, pos + chunkSize), result);
+    }
+
+    pos += chunkSize + (chunkSize % 2); // Word alignment
+  }
+}
+

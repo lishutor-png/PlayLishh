@@ -23,12 +23,14 @@ import {
   Disc,
   RotateCcw,
   Edit3,
+  HardDrive,
 } from 'lucide-react';
 import { AudioTrack, AudioSettings, SleepTimerConfig, PlaybackSource } from '../types';
 import { VisualizerCanvas } from './VisualizerCanvas';
 import { SyncedLyricsView } from './SyncedLyricsView';
 import { LyricEditorModal } from './LyricEditorModal';
 import { audioEngine } from '../services/audioEngine';
+import { AppLogo } from './AppLogo';
 
 interface NowPlayingFullProps {
   track: AudioTrack;
@@ -225,8 +227,10 @@ export function NowPlayingFull({
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="w-full h-full bg-[#161616] flex items-center justify-center text-white/30">
-                  <Disc className="w-24 h-24 animate-[spin_20s_linear_infinite]" />
+                <div className="w-full h-full bg-[#0d0d0f] flex items-center justify-center p-6">
+                  <div className="w-40 h-40 flex items-center justify-center">
+                    <AppLogo size="xl" variant="icon-only" isPlaying={isPlaying} />
+                  </div>
                 </div>
               )}
 
@@ -374,6 +378,30 @@ export function NowPlayingFull({
             <p className="text-xs text-white/50 truncate mt-0.5">
               {track.artist} • {track.album}
             </p>
+            <div className="flex items-center gap-2 mt-1 text-[10px] text-white/45 truncate">
+              {(track.filePath || track.fileName) && (
+                <span
+                  className="truncate flex items-center gap-1 font-mono text-white/40 max-w-[180px] sm:max-w-[240px]"
+                  title={`Lokasi berkas: ${track.filePath || track.fileName}`}
+                >
+                  <HardDrive className="w-3 h-3 text-white/30 shrink-0" />
+                  <span className="truncate">{track.filePath || track.fileName}</span>
+                </span>
+              )}
+              {track.hasMatchedLrc || track.lyrics ? (
+                <span
+                  className="flex items-center gap-1 text-[9px] font-semibold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.2 rounded border border-emerald-500/30 shrink-0"
+                  title={
+                    track.lrcFileName
+                      ? `Lirik otomatis dari: ${track.lrcFileName}`
+                      : 'Lirik lagu tersinkronisasi'
+                  }
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>.LRC Terhubung</span>
+                </span>
+              ) : null}
+            </div>
           </div>
           <button
             onClick={() => onToggleFavorite(track.id)}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Sparkles, X } from 'lucide-react';
 import {
   AudioTrack,
   Playlist,
@@ -23,6 +24,12 @@ import {
   getStoredLastTrackId,
   saveStoredLastTrackId,
 } from './services/db';
+import {
+  registerTrackFile,
+  getTrackAudioFile,
+  pairAudioAndLrcFiles,
+  normalizeSongBaseName,
+} from './services/fileRegistry';
 import { extractAudioMetadata } from './services/metadataExtractor';
 import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
 import { audioEngine, EQ_PRESETS } from './services/audioEngine';
@@ -115,6 +122,12 @@ export default function App() {
     fadeOutSeconds: 30,
     autoFade: true,
   });
+
+  const [importNotification, setImportNotification] = useState<{
+    show: boolean;
+    message: string;
+    details?: string;
+  } | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeBlobUrlRef = useRef<string | null>(null);
@@ -278,10 +291,10 @@ export default function App() {
     const prevBlobUrl = activeBlobUrlRef.current;
 
     try {
-      const blob = await getTrackBlob(track.id);
+      const fileOrBlob = await getTrackAudioFile(track);
       let src = '';
-      if (blob) {
-        src = URL.createObjectURL(blob);
+      if (fileOrBlob) {
+        src = URL.createObjectURL(fileOrBlob);
         activeBlobUrlRef.current = src;
       } else if (track.audioUrl) {
         src = track.audioUrl;
@@ -642,69 +655,200 @@ export default function App() {
     }
   };
 
-  // Local File Importer for FLAC, WAV, MP3, AAC, ALAC, OGG with Embedded Cover Art & ID3 Tag Extraction
-  const handleImportFiles = async (files: FileList) => {
-    const newLoadedTracks: AudioTrack[] = [];
+  // Local File Importer for FLAC, WAV, MP3, AAC, ALAC, OGG with Automatic .LRC Synchronizer
+  const handleImportFiles = async (files: FileList | File[]) => {
+    try {
+      const { matchedPairs, orphanLrcFiles } = await pairAudioAndLrcFiles(files);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const extension = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
-      let format: AudioFormat = 'MP3';
-      if (['FLAC', 'WAV', 'MP3', 'AAC', 'OGG', 'ALAC', 'M4A'].includes(extension)) {
-        format = extension as AudioFormat;
-      }
+      // Case A: User only imported .LRC files (e.g., adding lyrics to existing tracks)
+      if (matchedPairs.length === 0 && orphanLrcFiles.length > 0) {
+        let updatedCount = 0;
+        for (const lrcFile of orphanLrcFiles) {
+          const lrcKey = normalizeSongBaseName(lrcFile.name);
+          const targetTrack = tracks.find(
+            (t) =>
+              normalizeSongBaseName(t.title) === lrcKey ||
+              normalizeSongBaseName(t.fileName || '') === lrcKey
+          );
 
-      // Default fallback title from file name
-      const cleanName = file.name.replace(/\.[^/.]+$/, '');
-      const trackId = `track-${Date.now()}-${i}`;
-
-      // 1. Extract Embedded ID3/FLAC/MP4 tags and embedded cover artwork
-      const meta = await extractAudioMetadata(file);
-
-      // 2. Extract actual audio duration via temporary audio object
-      let realDuration = 180;
-      try {
-        const tempAudio = new Audio(URL.createObjectURL(file));
-        await new Promise((resolve) => {
-          tempAudio.onloadedmetadata = () => resolve(null);
-          tempAudio.onerror = () => resolve(null);
-          setTimeout(resolve, 800);
-        });
-        if (tempAudio.duration && !isNaN(tempAudio.duration) && isFinite(tempAudio.duration)) {
-          realDuration = Math.round(tempAudio.duration);
+          if (targetTrack) {
+            try {
+              const lrcText = await lrcFile.text();
+              await updateTrackLyrics(targetTrack.id, lrcText);
+              setTracks((prev) =>
+                prev.map((t) =>
+                  t.id === targetTrack.id
+                    ? {
+                        ...t,
+                        lyrics: lrcText,
+                        hasMatchedLrc: true,
+                        lrcFileName: lrcFile.name,
+                      }
+                    : t
+                )
+              );
+              if (currentTrack && currentTrack.id === targetTrack.id) {
+                setCurrentTrack((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        lyrics: lrcText,
+                        hasMatchedLrc: true,
+                        lrcFileName: lrcFile.name,
+                      }
+                    : null
+                );
+              }
+              updatedCount++;
+            } catch (err) {
+              console.warn('Gagal membaca file .lrc orphan:', err);
+            }
+          }
         }
-      } catch {
-        realDuration = 180;
+
+        setImportNotification({
+          show: true,
+          message: `${updatedCount} Berkas .LRC Berhasil Dihubungkan ke Lagu!`,
+          details:
+            updatedCount > 0
+              ? 'Lirik otomatis tersinkronisasi tanpa perlu dimuat berulang.'
+              : 'Tidak ditemukan lagu dengan nama yang cocok untuk file .lrc ini.',
+        });
+        setTimeout(() => setImportNotification(null), 4500);
+        return;
       }
 
-      const newTrack: AudioTrack = {
-        id: trackId,
-        title: meta.title || cleanName,
-        artist: meta.artist || 'Lokal Audio',
-        album: meta.album || 'Impor PlayLish',
-        duration: realDuration,
-        coverUrl: meta.coverUrl, // Embedded album art image
-        lyrics: meta.lyrics, // Embedded lyrics if available
-        format,
-        sampleRate: format === 'FLAC' ? 96000 : format === 'WAV' ? 48000 : 44100,
-        bitDepth: format === 'FLAC' || format === 'WAV' ? 24 : 16,
-        bitrate: format === 'FLAC' ? 4608 : format === 'WAV' ? 2304 : 320,
-        fileSize: file.size,
-        isOffline: true,
-        isFavorite: false,
-        genre: meta.genre || 'Lokal Lossless',
-        addedAt: Date.now(),
-        colorHex: '#F27D26',
-      };
+      // Case B: Importing Audio Files (with automatic .LRC pairing)
+      const newLoadedTracks: AudioTrack[] = [];
+      let autoLrcCount = 0;
 
-      await saveTrack(newTrack, file);
-      newLoadedTracks.push(newTrack);
-    }
+      for (let i = 0; i < matchedPairs.length; i++) {
+        const pair = matchedPairs[i];
+        const file = pair.audioFile;
+        const extension = file.name.split('.').pop()?.toUpperCase() || 'AUDIO';
+        let format: AudioFormat = 'MP3';
+        if (['FLAC', 'WAV', 'MP3', 'AAC', 'OGG', 'ALAC', 'M4A', 'WEBM'].includes(extension)) {
+          format = extension as AudioFormat;
+        }
 
-    setTracks((prev) => [...newLoadedTracks, ...prev]);
+        const cleanName = file.name.replace(/\.[^/.]+$/, '');
+        const trackId = `track-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
 
-    if (newLoadedTracks.length > 0 && !currentTrack) {
-      handlePlayTrack(newLoadedTracks[0]);
+        // 1. Extract Embedded ID3/FLAC/MP4 tags and embedded artwork
+        const meta = await extractAudioMetadata(file);
+
+        // 2. Extract actual audio duration
+        let realDuration = 180;
+        const tempUrl = URL.createObjectURL(file);
+        try {
+          const tempAudio = new Audio(tempUrl);
+          await new Promise((resolve) => {
+            tempAudio.onloadedmetadata = () => resolve(null);
+            tempAudio.onerror = () => resolve(null);
+            setTimeout(resolve, 900);
+          });
+          if (tempAudio.duration && !isNaN(tempAudio.duration) && isFinite(tempAudio.duration)) {
+            realDuration = Math.round(tempAudio.duration);
+          }
+        } catch {
+          realDuration = 180;
+        } finally {
+          URL.revokeObjectURL(tempUrl);
+        }
+
+        // 3. Read matching .LRC file if found alongside the audio
+        let lyricsText = meta.lyrics;
+        let hasMatchedLrc = false;
+        let lrcFileName: string | undefined = undefined;
+
+        if (pair.lrcFile) {
+          try {
+            lyricsText = await pair.lrcFile.text();
+            hasMatchedLrc = true;
+            lrcFileName = pair.lrcFile.name;
+            autoLrcCount++;
+          } catch (e) {
+            console.warn('Gagal membaca berkas .lrc pasangan:', e);
+          }
+        } else if (meta.lyrics) {
+          hasMatchedLrc = true;
+          lrcFileName = '(Tag Tersemat)';
+          autoLrcCount++;
+        }
+
+        const newTrack: AudioTrack = {
+          id: trackId,
+          title: meta.title || cleanName,
+          artist: meta.artist || 'Lokal Audio',
+          album: meta.album || 'Koleksi Lokal',
+          duration: realDuration,
+          coverUrl: meta.coverUrl,
+          lyrics: lyricsText,
+          format,
+          sampleRate: format === 'FLAC' ? 96000 : format === 'WAV' ? 48000 : 44100,
+          bitDepth: format === 'FLAC' || format === 'WAV' ? 24 : 16,
+          bitrate: format === 'FLAC' ? 4608 : format === 'WAV' ? 2304 : 320,
+          fileSize: file.size,
+          fileName: file.name,
+          filePath: pair.relativePath || file.name,
+          hasMatchedLrc,
+          lrcFileName,
+          isOffline: true,
+          isFavorite: false,
+          genre: meta.genre || 'Lokal Lossless',
+          addedAt: Date.now(),
+          colorHex: '#F27D26',
+        };
+
+        // Register in-memory for instant, zero-copy native streaming
+        registerTrackFile(trackId, file);
+
+        // Persist track metadata & audio blob reference
+        await saveTrack(newTrack, file);
+        newLoadedTracks.push(newTrack);
+      }
+
+      // 4. Handle orphan LRC files matching existing or newly loaded tracks
+      if (orphanLrcFiles.length > 0) {
+        for (const lrcFile of orphanLrcFiles) {
+          const lrcKey = normalizeSongBaseName(lrcFile.name);
+          const targetTrack = [...newLoadedTracks, ...tracks].find(
+            (t) =>
+              normalizeSongBaseName(t.title) === lrcKey ||
+              normalizeSongBaseName(t.fileName || '') === lrcKey
+          );
+          if (targetTrack && !targetTrack.lyrics) {
+            try {
+              const lrcText = await lrcFile.text();
+              await updateTrackLyrics(targetTrack.id, lrcText);
+              targetTrack.lyrics = lrcText;
+              targetTrack.hasMatchedLrc = true;
+              targetTrack.lrcFileName = lrcFile.name;
+              autoLrcCount++;
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+
+      setTracks((prev) => [...newLoadedTracks, ...prev]);
+
+      setImportNotification({
+        show: true,
+        message: `${newLoadedTracks.length} Lagu Berhasil Ditambahkan ke Playlist!`,
+        details:
+          autoLrcCount > 0
+            ? `${autoLrcCount} lirik (.LRC) otomatis terhubung & siap berjalan saat lagu diputar.`
+            : 'Lagu siap diputar langsung dari penyimpanan perangkat Anda.',
+      });
+      setTimeout(() => setImportNotification(null), 5500);
+
+      if (newLoadedTracks.length > 0 && !currentTrack) {
+        handlePlayTrack(newLoadedTracks[0], [...newLoadedTracks, ...tracks]);
+      }
+    } catch (err) {
+      console.error('Error importing files:', err);
     }
   };
 
@@ -1019,6 +1163,34 @@ export default function App() {
               setEditingLyricTrack(null);
             }}
           />
+        )}
+
+        {/* Automatic Import & LRC Sync Notification Banner */}
+        {importNotification && (
+          <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md bg-[#1c1c1e]/95 border border-[#F27D26]/40 shadow-2xl rounded-2xl p-3.5 backdrop-blur-xl animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-[#F27D26]/20 text-[#F27D26] shrink-0 mt-0.5">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-bold text-white tracking-tight">
+                  {importNotification.message}
+                </h4>
+                {importNotification.details && (
+                  <p className="text-[11px] text-white/60 mt-0.5 leading-relaxed">
+                    {importNotification.details}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setImportNotification(null)}
+                className="text-white/40 hover:text-white p-1 rounded-lg cursor-pointer transition-colors"
+                title="Tutup Notifikasi"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         )}
       </main>
     </div>

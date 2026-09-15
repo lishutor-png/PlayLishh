@@ -1,4 +1,4 @@
-import { useState, useRef, ChangeEvent } from 'react';
+import { useState, useRef, ChangeEvent, DragEvent } from 'react';
 import {
   Music,
   Play,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { AudioTrack, Playlist, AudioFormat } from '../types';
 import { AppLogo } from './AppLogo';
+import { ImportSongModal } from './ImportSongModal';
 
 interface TracksViewProps {
   tracks: AudioTrack[];
@@ -35,7 +36,7 @@ interface TracksViewProps {
   onTogglePlay: () => void;
   onToggleFavorite: (trackId: string) => void;
   onAddTrackToPlaylist: (playlistId: string, trackId: string) => void;
-  onImportFiles: (files: FileList) => void;
+  onImportFiles: (files: FileList | File[]) => void;
   onDeleteTrack: (trackId: string) => void;
   onOpenLyricEditor?: (track: AudioTrack) => void;
 }
@@ -61,7 +62,10 @@ export function TracksView({
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
   const [targetTrackForPlaylist, setTargetTrackForPlaylist] = useState<AudioTrack | null>(null);
   const [trackToDelete, setTrackToDelete] = useState<AudioTrack | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   // Filtered tracks
   const filteredTracks = tracks.filter((t) => {
@@ -89,8 +93,47 @@ export function TracksView({
     }
   };
 
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onImportFiles(e.dataTransfer.files);
+    }
+  };
+
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 max-w-2xl mx-auto w-full pb-32">
+    <div
+      className="flex-1 overflow-y-auto px-4 py-4 space-y-4 max-w-2xl mx-auto w-full pb-32 relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag & Drop Overlay Indicator */}
+      {isDragging && (
+        <div className="fixed inset-0 z-40 bg-[#F27D26]/20 backdrop-blur-sm border-4 border-dashed border-[#F27D26] m-4 rounded-3xl flex flex-col items-center justify-center pointer-events-none text-white animate-pulse">
+          <div className="p-4 rounded-full bg-[#F27D26] text-white shadow-2xl mb-2">
+            <Upload className="w-8 h-8" />
+          </div>
+          <h3 className="text-lg font-bold">Lepaskan File Musik & .LRC di Sini</h3>
+          <p className="text-xs text-white/80 mt-1">
+            PlayLish akan otomatis membaca lagu dan menghubungkan lirik .lrc
+          </p>
+        </div>
+      )}
+
       {/* Brand Hero Card with Adaptive Button Arrangement */}
       <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent border border-white/10 shadow-xl backdrop-blur-2xl relative overflow-hidden flex flex-col gap-3.5">
         <div className="absolute top-0 right-0 w-36 h-36 bg-[#F27D26]/10 rounded-full blur-2xl pointer-events-none" />
@@ -132,24 +175,32 @@ export function TracksView({
           )}
           <button
             id="btn-import-hero"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setIsImportModalOpen(true)}
             className={`${
               tracks.length > 1 ? 'col-span-1 sm:flex-none' : 'col-span-2 sm:flex-none'
             } flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95`}
-            title="Impor Audio dari Perangkat"
+            title="Pilih & Masukkan Lagu (MP3, FLAC, dll + .LRC)"
           >
             <Upload className="w-4 h-4" />
-            <span>Impor Audio</span>
+            <span>Pilih Lagu & .LRC</span>
           </button>
         </div>
       </div>
 
-      {/* Hidden File Input */}
+      {/* Hidden File Inputs */}
       <input
         type="file"
         ref={fileInputRef}
         multiple
-        accept="audio/*,.flac,.wav,.mp3,.aac,.ogg,.m4a,.alac"
+        accept="audio/*,.flac,.wav,.mp3,.aac,.ogg,.m4a,.alac,.lrc,.txt"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={folderInputRef}
+        multiple
+        {...({ webkitdirectory: '', directory: '' } as any)}
         onChange={handleFileChange}
         className="hidden"
       />
@@ -261,8 +312,8 @@ export function TracksView({
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white/40 bg-white/5">
-                        <Music className="w-5 h-5" />
+                      <div className="w-full h-full flex items-center justify-center p-1 bg-[#0d0d10]">
+                        <AppLogo size="sm" variant="icon-only" isPlaying={isCurrent && isPlaying} />
                       </div>
                     )}
                     {/* Play/Pause Overlay Button */}
@@ -317,6 +368,32 @@ export function TracksView({
                           </span>
                         </>
                       )}
+                    </div>
+
+                    {/* File Path Location & Automatic LRC Status Badge */}
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-white/45 truncate">
+                      {(track.filePath || track.fileName) && (
+                        <span
+                          className="truncate flex items-center gap-1 font-mono text-white/40 max-w-[170px] sm:max-w-[220px]"
+                          title={`Lokasi berkas: ${track.filePath || track.fileName}`}
+                        >
+                          <HardDrive className="w-3 h-3 text-white/30 shrink-0" />
+                          <span className="truncate">{track.filePath || track.fileName}</span>
+                        </span>
+                      )}
+                      {track.hasMatchedLrc || track.lyrics ? (
+                        <span
+                          className="flex items-center gap-1 text-[9px] font-semibold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.2 rounded border border-emerald-500/30 shrink-0"
+                          title={
+                            track.lrcFileName
+                              ? `Lirik otomatis terhubung dari: ${track.lrcFileName}`
+                              : 'Lirik lagu tersinkronisasi'
+                          }
+                        >
+                          <Sparkles className="w-2.5 h-2.5" />
+                          <span>.LRC Terhubung</span>
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -493,6 +570,14 @@ export function TracksView({
           </div>
         </div>
       )}
+
+      {/* Import Audio & Auto LRC Matching Modal */}
+      <ImportSongModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportFiles={onImportFiles}
+        existingTracksCount={tracks.length}
+      />
     </div>
   );
 }
