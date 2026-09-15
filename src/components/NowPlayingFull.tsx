@@ -122,7 +122,7 @@ export function NowPlayingFull({
       />
 
       {/* Top App Bar */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2 z-10">
+      <div className="flex items-center justify-between px-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-2 z-10">
         <button
           onClick={onClose}
           className="p-2 rounded-2xl bg-white/5 hover:bg-white/15 text-white/70 hover:text-white border border-white/10 cursor-pointer transition-all active:scale-95"
@@ -417,7 +417,7 @@ export function NowPlayingFull({
       </div>
 
       {/* Bottom Controls Area */}
-      <div className="w-full max-w-md mx-auto px-6 pb-6 pt-2 z-10 space-y-4">
+      <div className="w-full max-w-md mx-auto px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-2 z-10 space-y-4">
         {/* Progress Bar & Scrubber */}
         <div className="space-y-1">
           <input

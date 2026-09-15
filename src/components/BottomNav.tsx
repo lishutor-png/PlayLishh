@@ -24,7 +24,7 @@ export function BottomNav({ activeTab, onSelectTab, playlistCount }: BottomNavPr
   return (
     <nav
       id="android-bottom-nav"
-      className="w-full bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/10 px-3 py-2 flex items-center justify-around z-40"
+      className="w-full bg-[#0A0A0A]/95 backdrop-blur-2xl border-t border-white/10 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] flex items-center justify-around z-40 shrink-0"
     >
       {navItems.map((item) => {
         const Icon = item.icon;

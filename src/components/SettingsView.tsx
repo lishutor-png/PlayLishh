@@ -16,6 +16,9 @@ import {
   Repeat1,
   Radio,
   SlidersHorizontal,
+  Smartphone,
+  Download,
+  Terminal,
 } from 'lucide-react';
 import { AudioSettings, SleepTimerConfig } from '../types';
 import { audioEngine } from '../services/audioEngine';
@@ -347,7 +350,50 @@ export function SettingsView({
         </div>
       </div>
 
-      {/* SECTION 5: APP SPECS & HI-RES CAPABILITIES */}
+      {/* SECTION 5: ANDROID NATIVE APK BUILD STATUS & GUIDE */}
+      <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
+            <Smartphone className="w-4 h-4 text-[#F27D26]" />
+            Paket Android APK (Capacitor Native)
+          </div>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Konfigurasi Siap Build
+          </span>
+        </div>
+
+        <p className="text-xs text-white/70 leading-relaxed">
+          Proyek native Android (<span className="text-[#F27D26] font-semibold">Capacitor v6</span>) telah dikonfigurasi lengkap di dalam folder <code className="text-[10px] font-mono bg-white/10 px-1 py-0.5 rounded text-white">/android</code>, lengkap dengan perizinan memori (<code className="text-[10px] font-mono bg-white/10 px-1 py-0.5 rounded text-white">READ_MEDIA_AUDIO</code>), pemutaran latar belakang (<code className="text-[10px] font-mono bg-white/10 px-1 py-0.5 rounded text-white">FOREGROUND_SERVICE</code>), dan logo piringan hitam baru.
+        </p>
+
+        <div className="space-y-2.5">
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-1.5 text-xs">
+            <div className="flex items-center gap-2 text-[#F27D26] font-semibold text-xs">
+              <Download className="w-4 h-4" />
+              <span>Cara Build APK Otomatis (GitHub Actions)</span>
+            </div>
+            <p className="text-white/60 text-[11px] leading-relaxed">
+              Workflow <code className="text-[#F27D26] font-mono">.github/workflows/build-apk.yml</code> sudah diperbaiki dan diuji. Setiap kali Anda melakukan push ke repositori GitHub, GitHub Actions otomatis menyusun berkas APK dan menyediakannya di menu <strong>Actions &rarr; PlayLish-Debug-APK</strong>.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-1.5 text-xs">
+            <div className="flex items-center gap-2 text-white font-semibold text-xs">
+              <Terminal className="w-4 h-4 text-sky-400" />
+              <span>Cara Build APK di Laptop / Android Studio</span>
+            </div>
+            <div className="bg-black/60 p-2.5 rounded-xl font-mono text-[11px] text-white/80 space-y-1 overflow-x-auto border border-white/5">
+              <p className="text-white/40"># 1. Sinkronisasi aset web ke proyek Android:</p>
+              <p className="text-emerald-400">npm run cap:build</p>
+              <p className="text-white/40 mt-1"># 2. Compile APK debug langsung melalui Gradle:</p>
+              <p className="text-emerald-400">cd android && ./gradlew assembleDebug</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 6: APP SPECS & HI-RES CAPABILITIES */}
       <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
         <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
           <Info className="w-4 h-4 text-[#F27D26]" />

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Vinyl Deep Black Radial Body -->
+    <radialGradient id="logo-vinyl-base" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1e1e23" />
+      <stop offset="45%" stop-color="#0d0d10" />
+      <stop offset="85%" stop-color="#151518" />
+      <stop offset="100%" stop-color="#060608" />
+    </radialGradient>
+
+    <!-- Vinyl Specular Light Reflection -->
+    <linearGradient id="logo-sheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18" />
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.0" />
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.0" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.18" />
+    </linearGradient>
+
+    <!-- Orange Play Button Gradient -->
+    <linearGradient id="logo-orange-btn" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFA03A" />
+      <stop offset="45%" stop-color="#F27D26" />
+      <stop offset="100%" stop-color="#C94E03" />
+    </linearGradient>
+
+    <!-- Button Drop Shadow and Glow -->
+    <filter id="logo-btn-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#F27D26" flood-opacity="0.55" />
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.7" />
+    </filter>
+    <filter id="logo-play-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+    <filter id="vinyl-outer-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.8" />
+    </filter>
+  </defs>
+
+  <!-- 1. Piringan Hitam (Black Vinyl Disc) -->
+  <circle cx="256" cy="256" r="240" fill="url(#logo-vinyl-base)" stroke="#2e2e36" stroke-width="5" filter="url(#vinyl-outer-shadow)" />
+
+  <!-- 2. Concentric Grooves (Alur Piringan Hitam) -->
+  <circle cx="256" cy="256" r="224" stroke="rgba(255,255,255,0.06)" stroke-width="3" fill="none" />
+  <circle cx="256" cy="256" r="208" stroke="rgba(0,0,0,0.75)" stroke-width="3.5" fill="none" />
+  <circle cx="256" cy="256" r="192" stroke="rgba(255,255,255,0.08)" stroke-width="3" fill="none" />
+  <circle cx="256" cy="256" r="176" stroke="rgba(0,0,0,0.65)" stroke-width="3.2" fill="none" />
+  <circle cx="256" cy="256" r="160" stroke="rgba(255,255,255,0.05)" stroke-width="2.8" fill="none" />
+  <circle cx="256" cy="256" r="144" stroke="rgba(0,0,0,0.7)" stroke-width="3" fill="none" />
+  <circle cx="256" cy="256" r="128" stroke="rgba(255,255,255,0.07)" stroke-width="2.8" fill="none" />
+  <circle cx="256" cy="256" r="112" stroke="rgba(0,0,0,0.8)" stroke-width="3.5" fill="none" />
+
+  <!-- 3. Specular Dual Light Sheen Cones -->
+  <path d="M256 256 L77 77 A240 240 0 0 1 435 77 Z M256 256 L435 435 A240 240 0 0 1 77 435 Z" fill="url(#logo-sheen)" opacity="0.85" />
+
+  <!-- 4. Inner Label Rim -->
+  <circle cx="256" cy="256" r="102" fill="#121215" stroke="#25252b" stroke-width="6" />
+  <circle cx="256" cy="256" r="92" stroke="rgba(255,255,255,0.1)" stroke-width="2" stroke-dasharray="4 6" fill="none" />
+
+  <!-- 5. Tombol Play Berwarna Oranye (Orange Play Button) -->
+  <circle cx="256" cy="256" r="76" fill="url(#logo-orange-btn)" filter="url(#logo-btn-glow)" stroke="rgba(255,255,255,0.4)" stroke-width="4.5" />
+  <circle cx="256" cy="256" r="66" stroke="rgba(255,255,255,0.22)" stroke-width="3" fill="none" />
+
+  <!-- 6. Play Triangle Symbol in Center -->
+  <path d="M236 210C236 205.5 240.8 202.8 244.8 205.2L312 251.2C315.6 253.6 315.6 258.4 312 260.8L244.8 306.8C240.8 309.2 236 306.5 236 302V210Z" fill="#FFFFFF" filter="url(#logo-play-shadow)" />
+  <circle cx="256" cy="256" r="5" fill="#C84F04" opacity="0.6" />
+</svg>

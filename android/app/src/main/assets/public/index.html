@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="id" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>PlayLish - Hi-Res Audio Player</title>
+    <meta name="description" content="Pemutar musik minimalis elegan dengan audio Hi-Res, equalizer, lirik berjalan, dan playlist cerdas." />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png?v=3" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/pwa-512x512.png?v=3" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3" />
+    <link rel="manifest" href="/manifest.json?v=3" />
+    <meta name="application-name" content="PlayLish" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta property="og:title" content="PlayLish - Hi-Res Audio Player" />
+    <meta property="og:description" content="Pemutar musik minimalis elegan dengan audio Hi-Res, equalizer, lirik berjalan, dan playlist cerdas." />
+    <meta property="og:image" content="/pwa-512x512.png?v=3" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#050505" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            reg.update();
+          }).catch((err) => {
+            console.log('SW registration skipped:', err);
+          });
+        });
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-DJzw14YE.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-rOPH_7gT.css">
+  </head>
+  <body class="bg-[#050505] text-white font-['Plus_Jakarta_Sans',sans-serif] antialiased selection:bg-[#F27D26]/30 selection:text-white overflow-x-hidden">
+    <div id="root"></div>
+  </body>
+</html>
+

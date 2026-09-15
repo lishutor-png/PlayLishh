@@ -23,12 +23,13 @@ jobs:
           node-version: 22
 
       - name: Install Project Dependencies
-        run: |
-          npm install --legacy-peer-deps
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest --save
+        run: npm install --legacy-peer-deps
 
       - name: Build Web Assets (Vite)
         run: npm run build
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
 
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
@@ -36,13 +37,9 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Initialize Capacitor Android Project
+      - name: Accept Android SDK Licenses
         run: |
-          npx cap add android || true
-          npx cap sync android
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Grant Execute Permission to Gradle
         run: |

@@ -1,0 +1,9 @@
+{
+	"appId": "com.playlish.musicplayer",
+	"appName": "PlayLish",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true
+	}
+}
