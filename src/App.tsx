@@ -14,6 +14,7 @@ import {
   saveTrack,
   saveTracksBatch,
   purgeLegacyCopiedBlobs,
+  clearAllTracks,
   updateTrackLyrics,
   deleteTrack as deleteTrackDB,
   getAllPlaylists,
@@ -28,13 +29,13 @@ import {
 import {
   registerTrackFile,
   unregisterTrackFile,
+  clearAllTrackFiles,
   resolveDirectStreamUrl,
   pairAudioAndLrcFiles,
   normalizeSongBaseName,
   scanAndroidDeviceMusic,
 } from './services/fileRegistry';
 import { extractAudioMetadata } from './services/metadataExtractor';
-import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
 import { audioEngine } from './services/audioEngine';
 import {
   initMediaSessionController,
@@ -138,43 +139,25 @@ export default function App() {
   useEffect(() => {
     async function initData() {
       try {
-        // Free up phone storage/RAM from any legacy copied audio blobs
+        // Free up phone storage/RAM from any legacy copied audio blobs & built-in demo tracks
         await purgeLegacyCopiedBlobs();
 
-        let savedTracks = await getAllTracks();
-        if (savedTracks.length === 0) {
-          // Initialize default Hi-Res demo tracks (Metadata only — zero disk bloat)
-          await saveTracksBatch(INITIAL_DEFAULT_TRACKS);
-          savedTracks = await getAllTracks();
-        }
+        const savedTracks = await getAllTracks();
 
         let savedPlaylists = await getAllPlaylists();
         if (savedPlaylists.length === 0) {
-          const defaultPlaylists: Playlist[] = [
-            {
-              id: 'pl-hires-master',
-              title: 'Master Hi-Res (FLAC & WAV)',
-              description: 'Koleksi audio beresolusi tinggi 24-bit 96kHz',
-              trackIds: savedTracks.map((t) => t.id),
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              color: '#06b6d4',
-            },
-            {
-              id: 'pl-favorites',
-              title: 'Lagu Favorit',
-              description: 'Daftar lagu pilihan terbaik',
-              trackIds: savedTracks.filter((t) => t.isFavorite).map((t) => t.id),
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-              color: '#ec4899',
-              isSystem: true,
-            },
-          ];
+          const favPlaylist: Playlist = {
+            id: 'pl-favorites',
+            title: 'Lagu Favorit',
+            description: 'Daftar lagu pilihan terbaik Anda',
+            trackIds: savedTracks.filter((t) => t.isFavorite).map((t) => t.id),
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            color: '#ec4899',
+            isSystem: true,
+          };
 
-          for (const pl of defaultPlaylists) {
-            await savePlaylist(pl);
-          }
+          await savePlaylist(favPlaylist);
           savedPlaylists = await getAllPlaylists();
         }
 
@@ -290,7 +273,7 @@ export default function App() {
     if (!audioRef.current) return;
 
     try {
-      const src = await resolveDirectStreamUrl(track, prepareTrackBlob);
+      const src = await resolveDirectStreamUrl(track);
       if (!src) {
         console.warn('No direct audio stream available for track:', track.title);
         return;
@@ -937,8 +920,45 @@ export default function App() {
         if (audioRef.current) audioRef.current.pause();
         setIsPlaying(false);
         setCurrentTrack(null);
+        publishMediaTrackMetadata(null);
       }
     }
+  };
+
+  // Clear All Tracks from Library, Queues, and All Playlists
+  const handleClearAllTracks = async () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+    }
+    setIsPlaying(false);
+    setCurrentTrack(null);
+    setIsFullPlayerOpen(false);
+    setCurrentTime(0);
+    setDuration(0);
+    publishMediaTrackMetadata(null);
+
+    clearAllTrackFiles();
+    await clearAllTracks();
+
+    setTracks([]);
+    setOriginalQueue([]);
+    setQueue([]);
+    setPlaylists((prev) =>
+      prev.map((pl) => ({
+        ...pl,
+        trackIds: [],
+        updatedAt: Date.now(),
+      }))
+    );
+
+    setImportNotification({
+      show: true,
+      message: 'Semua Lagu Berhasil Dihapus dari Daftar',
+      details: 'Daftar putar telah dikosongkan. File asli di perangkat Anda tetap aman.',
+    });
+    setTimeout(() => setImportNotification(null), 4000);
   };
 
   // Sleep Timer controls
@@ -1051,6 +1071,7 @@ export default function App() {
               onImportFiles={handleImportFiles}
               onScanDeviceMusic={handleScanDeviceMusic}
               onDeleteTrack={handleDeleteTrack}
+              onClearAllTracks={handleClearAllTracks}
               onOpenLyricEditor={(targetTrack) => setEditingLyricTrack(targetTrack)}
             />
           )}

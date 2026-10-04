@@ -41,6 +41,7 @@ interface TracksViewProps {
   onImportFiles: (files: FileList | File[]) => void;
   onScanDeviceMusic?: () => Promise<void>;
   onDeleteTrack: (trackId: string) => void;
+  onClearAllTracks?: () => void;
   onOpenLyricEditor?: (track: AudioTrack) => void;
 }
 
@@ -60,12 +61,14 @@ export function TracksView({
   onImportFiles,
   onScanDeviceMusic,
   onDeleteTrack,
+  onClearAllTracks,
   onOpenLyricEditor,
 }: TracksViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
   const [targetTrackForPlaylist, setTargetTrackForPlaylist] = useState<AudioTrack | null>(null);
   const [trackToDelete, setTrackToDelete] = useState<AudioTrack | null>(null);
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -233,23 +236,36 @@ export function TracksView({
         className="hidden"
       />
 
-      {/* Section Title & Statistics */}
-      <div className="flex items-center justify-between px-1">
-        <div>
+      {/* Section Title & Actions (Clear All + Access Options) */}
+      <div className="flex items-center justify-between px-1 gap-2">
+        <div className="min-w-0">
           <h2 className="text-base font-bold text-white flex items-center gap-2 tracking-tight">
-            <Music className="w-4 h-4 text-[#F27D26]" />
-            Daftar Lagu ({tracks.length})
+            <Music className="w-4 h-4 text-[#F27D26] shrink-0" />
+            <span>Daftar Lagu ({tracks.length})</span>
           </h2>
-          <p className="text-[11px] text-white/50">
+          <p className="text-[11px] text-white/50 truncate">
             Putar langsung dari memori perangkat tanpa salin file (Zero-Copy)
           </p>
         </div>
-        <button
-          onClick={() => setIsImportModalOpen(true)}
-          className="text-[11px] font-semibold text-[#F27D26] hover:text-[#ff8a3d] bg-[#F27D26]/10 px-2.5 py-1 rounded-xl border border-[#F27D26]/25 cursor-pointer transition-colors"
-        >
-          + Opsi Akses
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {tracks.length > 0 && onClearAllTracks && (
+            <button
+              id="btn-clear-all-tracks"
+              onClick={() => setIsClearAllModalOpen(true)}
+              className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1.5 rounded-xl border border-rose-500/30 cursor-pointer transition-all active:scale-95"
+              title="Hapus Semua Lagu dari Daftar"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Hapus Semua</span>
+            </button>
+          )}
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="text-[11px] font-semibold text-[#F27D26] hover:text-[#ff8a3d] bg-[#F27D26]/10 hover:bg-[#F27D26]/20 px-2.5 py-1.5 rounded-xl border border-[#F27D26]/25 cursor-pointer transition-all active:scale-95"
+          >
+            + Opsi Akses
+          </button>
+        </div>
       </div>
 
       {/* Search Input with Clear Button */}
@@ -493,6 +509,46 @@ export function TracksView({
           })
         )}
       </div>
+
+      {/* Clear All Tracks Confirmation Modal */}
+      {isClearAllModalOpen && onClearAllTracks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm bg-[#0E0E0E] border border-rose-500/40 rounded-3xl p-6 shadow-2xl text-white space-y-4 backdrop-blur-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-11 h-11 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">Hapus Semua Lagu?</h3>
+                <p className="text-[11px] text-white/50">Kosongkan seluruh daftar lagu ({tracks.length} lagu)</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-white/70 leading-relaxed">
+              Seluruh <strong className="text-white">{tracks.length} lagu</strong> yang telah dimasukkan akan dihapus dari daftar putar PlayLish. Berkas MP3/audio asli di penyimpanan HP Anda tetap aman dan tidak ikut terhapus.
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                onClick={() => setIsClearAllModalOpen(false)}
+                className="flex-1 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-white/80 border border-white/10 cursor-pointer transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                id="btn-confirm-clear-all"
+                onClick={() => {
+                  onClearAllTracks();
+                  setIsClearAllModalOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-lg shadow-rose-500/25 cursor-pointer transition-all active:scale-95"
+              >
+                Ya, Hapus Semua
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Remove Track From List Confirmation Modal */}
       {trackToDelete && (

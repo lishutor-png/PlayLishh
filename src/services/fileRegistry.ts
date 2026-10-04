@@ -30,14 +30,20 @@ export function unregisterTrackFile(trackId: string): void {
 }
 
 /**
+ * Clear all registered file pointers and revoke active ObjectURL
+ */
+export function clearAllTrackFiles(): void {
+  inMemoryFileMap.clear();
+  inMemoryHandleMap.clear();
+  revokeActiveObjectUrl();
+}
+
+/**
  * Check if a track has an active direct file pointer or native Android URI
  */
 export function hasDirectAudioAccess(track: AudioTrack): boolean {
   if (track.audioUrl && !track.audioUrl.startsWith('blob:')) return true;
   if (inMemoryFileMap.has(track.id) || inMemoryHandleMap.has(track.id)) return true;
-  if (track.id.startsWith('track-flac-') || track.id.startsWith('track-wav-') || track.id.startsWith('track-alac-')) {
-    return true;
-  }
   return false;
 }
 
@@ -68,10 +74,7 @@ export async function getTrackAudioFile(track: AudioTrack): Promise<File | Blob 
  * Resolves a direct playable URL for <audio src={...}> with deterministic ObjectURL cleanup.
  * Prevents memory leaks over multi-hour playback sessions.
  */
-export async function resolveDirectStreamUrl(
-  track: AudioTrack,
-  fallbackGenerator?: (t: AudioTrack) => Promise<Blob>
-): Promise<string> {
+export async function resolveDirectStreamUrl(track: AudioTrack): Promise<string> {
   // 1. If track has a native Android content:// or file:// URL or HTTP URL, stream directly without Blob URL
   if (track.audioUrl && !track.audioUrl.startsWith('blob:')) {
     revokeActiveObjectUrl();
@@ -83,14 +86,6 @@ export async function resolveDirectStreamUrl(
   if (fileOrBlob) {
     revokeActiveObjectUrl();
     activeObjectUrl = URL.createObjectURL(fileOrBlob);
-    return activeObjectUrl;
-  }
-
-  // 3. Fallback for built-in demo tracks (synthesized on-demand in memory, never saved to disk)
-  if (fallbackGenerator) {
-    const synthBlob = await fallbackGenerator(track);
-    revokeActiveObjectUrl();
-    activeObjectUrl = URL.createObjectURL(synthBlob);
     return activeObjectUrl;
   }
 

@@ -86,18 +86,79 @@ export async function saveTracksBatch(tracksToSave: AudioTrack[]): Promise<void>
 }
 
 /**
- * Purges any legacy copied audio blobs from IndexedDB to reclaim device RAM & disk storage.
+ * Purges any legacy copied audio blobs and built-in default demo tracks from IndexedDB.
  */
 export async function purgeLegacyCopiedBlobs(): Promise<void> {
   try {
     const db = await getDB();
+    const tx = db.transaction(['tracks', 'audioBlobs', 'playlists'], 'readwrite');
     if (db.objectStoreNames.contains('audioBlobs')) {
-      const tx = db.transaction('audioBlobs', 'readwrite');
       tx.objectStore('audioBlobs').clear();
     }
+
+    // Remove legacy built-in demo tracks & default demo playlist if present
+    const defaultIds = ['track-flac-01', 'track-wav-02', 'track-alac-03', 'track-flac-04'];
+    const trackStore = tx.objectStore('tracks');
+    for (const id of defaultIds) {
+      trackStore.delete(id);
+    }
+
+    const playlistStore = tx.objectStore('playlists');
+    playlistStore.delete('pl-hires-master');
+
+    const getAllPlReq = playlistStore.getAll();
+    getAllPlReq.onsuccess = () => {
+      const playlists: Playlist[] = getAllPlReq.result || [];
+      playlists.forEach((pl) => {
+        const filtered = pl.trackIds.filter((id) => !defaultIds.includes(id));
+        if (filtered.length !== pl.trackIds.length) {
+          pl.trackIds = filtered;
+          pl.updatedAt = Date.now();
+          playlistStore.put(pl);
+        }
+      });
+    };
   } catch {
     // ignore
   }
+}
+
+/**
+ * Deletes ALL tracks from the database and clears trackIds from all playlists.
+ */
+export async function clearAllTracks(): Promise<void> {
+  try {
+    localStorage.removeItem('playlish_last_track_id');
+  } catch {
+    // ignore
+  }
+
+  const db = await getDB();
+  const tx = db.transaction(['tracks', 'audioBlobs', 'playlists'], 'readwrite');
+
+  tx.objectStore('tracks').clear();
+  if (db.objectStoreNames.contains('audioBlobs')) {
+    tx.objectStore('audioBlobs').clear();
+  }
+
+  const playlistStore = tx.objectStore('playlists');
+  const getAllPlaylistsReq = playlistStore.getAll();
+
+  getAllPlaylistsReq.onsuccess = () => {
+    const playlists: Playlist[] = getAllPlaylistsReq.result || [];
+    playlists.forEach((pl) => {
+      if (pl.trackIds.length > 0) {
+        pl.trackIds = [];
+        pl.updatedAt = Date.now();
+        playlistStore.put(pl);
+      }
+    });
+  };
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 export async function getAllTracks(): Promise<AudioTrack[]> {
