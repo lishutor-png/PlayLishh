@@ -1,6 +1,6 @@
 import { AudioTrack } from '../types';
 
-interface MediaSessionCallbacks {
+export interface MediaSessionCallbacks {
   onPlay: () => void;
   onPause: () => void;
   onPrev: () => void;
@@ -8,169 +8,284 @@ interface MediaSessionCallbacks {
   onSeek: (seconds: number) => void;
 }
 
+interface PlayLishNativeBridge {
+  updateMediaSession: (
+    title: string,
+    artist: string,
+    album: string,
+    isPlaying: boolean,
+    positionMs: number,
+    durationMs: number
+  ) => void;
+  updatePlaybackState: (
+    isPlaying: boolean,
+    positionMs: number,
+    durationMs: number
+  ) => void;
+  stopMediaSession: () => void;
+  scanDeviceAudio?: () => string;
+  requestStoragePermission?: () => void;
+}
+
+declare global {
+  interface Window {
+    PlayLishNativeBridge?: PlayLishNativeBridge;
+  }
+}
+
+// Stable reference to callbacks so handlers are registered ONCE and never spammed
+let currentCallbacks: MediaSessionCallbacks | null = null;
+let isInitialized = false;
+let lastPositionSyncTime = 0;
+let lastSyncedTrackId: string | null = null;
+let lastSyncedIsPlaying: boolean | null = null;
+
 /**
- * Initializes and registers Media Session API handlers for system Control Center,
- * Notification Tray, Lockscreen, and Bluetooth/Wearable devices.
+ * Registers MediaSession handlers once for both Web MediaSession API and
+ * Native Android MediaPlaybackService (via PlayLishNativeBridge).
  */
-export function setupMediaSession(callbacks: MediaSessionCallbacks): () => void {
-  if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
+export function initMediaSessionController(callbacks: MediaSessionCallbacks): () => void {
+  currentCallbacks = callbacks;
+
+  if (typeof window === 'undefined') {
     return () => {};
   }
 
-  const ms = navigator.mediaSession;
+  // Listen for Native Android Notification / Lockscreen / Bluetooth media button events
+  const handleNativeEvent = (e: Event) => {
+    const customEvent = e as CustomEvent<{ action: string; seekTime?: number }>;
+    const detail = customEvent.detail;
+    if (!detail || !currentCallbacks) return;
 
-  const safeSet = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
-    try {
-      ms.setActionHandler(action, handler);
-    } catch {
-      // Ignore unsupported optional actions in older browsers
+    switch (detail.action) {
+      case 'play':
+        currentCallbacks.onPlay();
+        break;
+      case 'pause':
+      case 'stop':
+        currentCallbacks.onPause();
+        break;
+      case 'next':
+        currentCallbacks.onNext();
+        break;
+      case 'prev':
+        currentCallbacks.onPrev();
+        break;
+      case 'seekto':
+        if (typeof detail.seekTime === 'number' && !isNaN(detail.seekTime)) {
+          currentCallbacks.onSeek(detail.seekTime);
+        }
+        break;
     }
   };
 
-  // 1. Playback Controls
-  safeSet('play', () => {
-    callbacks.onPlay();
-  });
+  window.addEventListener('playlish-native-action', handleNativeEvent);
 
-  safeSet('pause', () => {
-    callbacks.onPause();
-  });
+  // Register standard Web MediaSession handlers once
+  if ('mediaSession' in navigator && !isInitialized) {
+    isInitialized = true;
+    const ms = navigator.mediaSession;
 
-  safeSet('previoustrack', () => {
-    callbacks.onPrev();
-  });
+    const safeSetHandler = (
+      action: MediaSessionAction,
+      handler: MediaSessionActionHandler | null
+    ) => {
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        // Ignore unsupported actions on specific WebView versions
+      }
+    };
 
-  safeSet('nexttrack', () => {
-    callbacks.onNext();
-  });
+    safeSetHandler('play', () => currentCallbacks?.onPlay());
+    safeSetHandler('pause', () => currentCallbacks?.onPause());
+    safeSetHandler('previoustrack', () => currentCallbacks?.onPrev());
+    safeSetHandler('nexttrack', () => currentCallbacks?.onNext());
+    safeSetHandler('stop', () => currentCallbacks?.onPause());
 
-  safeSet('stop', () => {
-    callbacks.onPause();
-  });
+    safeSetHandler('seekto', (details) => {
+      if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
+        currentCallbacks?.onSeek(details.seekTime);
+      }
+    });
 
-  // 2. Seeking & Scrubber Controls in Android Notification / iOS Lockscreen
-  safeSet('seekto', (details) => {
-    if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
-      callbacks.onSeek(details.seekTime);
-    }
-  });
+    safeSetHandler('seekbackward', (details) => {
+      const skip = details.seekOffset || 10;
+      const audio = document.querySelector('audio');
+      if (audio && currentCallbacks) {
+        currentCallbacks.onSeek(Math.max(0, audio.currentTime - skip));
+      }
+    });
 
-  safeSet('seekbackward', (details) => {
-    const skip = details.seekOffset || 10;
-    const audio = document.querySelector('audio');
-    if (audio) {
-      callbacks.onSeek(Math.max(0, audio.currentTime - skip));
-    }
-  });
-
-  safeSet('seekforward', (details) => {
-    const skip = details.seekOffset || 10;
-    const audio = document.querySelector('audio');
-    if (audio) {
-      callbacks.onSeek(Math.min(audio.duration || 9999, audio.currentTime + skip));
-    }
-  });
+    safeSetHandler('seekforward', (details) => {
+      const skip = details.seekOffset || 10;
+      const audio = document.querySelector('audio');
+      if (audio && currentCallbacks) {
+        currentCallbacks.onSeek(Math.min(audio.duration || 9999, audio.currentTime + skip));
+      }
+    });
+  }
 
   return () => {
-    safeSet('play', null);
-    safeSet('pause', null);
-    safeSet('previoustrack', null);
-    safeSet('nexttrack', null);
-    safeSet('stop', null);
-    safeSet('seekto', null);
-    safeSet('seekbackward', null);
-    safeSet('seekforward', null);
+    window.removeEventListener('playlish-native-action', handleNativeEvent);
   };
 }
 
 /**
- * Updates track metadata in the system Control Center and Lockscreen.
- * Android OS MediaNotificationManager strictly requires absolute HTTP/HTTPS URLs and PNG/JPEG formats.
+ * Publishes track metadata to both Android Native MediaSession Service and Web MediaSession.
+ * Avoids passing large base64/blob strings over IPC to prevent Android TransactionTooLargeException.
  */
-export function updateMediaSessionMetadata(track: AudioTrack | null): void {
-  if (typeof window === 'undefined' || !('mediaSession' in navigator) || !window.MediaMetadata) {
-    return;
-  }
+export function publishMediaTrackMetadata(
+  track: AudioTrack | null,
+  isPlaying: boolean = false,
+  currentTimeSec: number = 0,
+  durationSec: number = 0
+): void {
+  if (typeof window === 'undefined') return;
 
   if (!track) {
-    navigator.mediaSession.metadata = null;
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = 'none';
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      window.PlayLishNativeBridge?.stopMediaSession();
+    } catch {
+      // ignore
+    }
+    lastSyncedTrackId = null;
     return;
   }
 
-  const origin = window.location.origin;
-  const defaultPngCover = `${origin}/music-cover-default.png`;
-  const pwa512Url = `${origin}/pwa-512x512.png`;
-  const pwa192Url = `${origin}/pwa-192x192.png`;
+  const title = track.title || 'PlayLish Audio';
+  const artist = track.artist || 'PlayLish Hi-Res';
+  const album = track.album || 'Koleksi Lokal';
+  const effectiveDuration = durationSec > 0 ? durationSec : track.duration || 0;
 
-  let primaryArtwork = track.coverUrl;
-
-  // Blob URLs from imported tracks cannot be loaded by the Android System Notification daemon!
-  // In that case, we fall back to our high-resolution PNG music cover.
-  if (!primaryArtwork || primaryArtwork.startsWith('blob:')) {
-    primaryArtwork = defaultPngCover;
-  } else if (primaryArtwork.startsWith('data:')) {
-    // Keep data: URI intact for embedded artwork
-  } else if (!primaryArtwork.startsWith('http://') && !primaryArtwork.startsWith('https://')) {
-    primaryArtwork = `${origin}${primaryArtwork.startsWith('/') ? '' : '/'}${primaryArtwork}`;
-  }
-
-  const artworkList: MediaImage[] = [
-    { src: primaryArtwork, sizes: '512x512', type: 'image/png' },
-    { src: defaultPngCover, sizes: '512x512', type: 'image/png' },
-    { src: pwa512Url, sizes: '512x512', type: 'image/png' },
-    { src: pwa192Url, sizes: '192x192', type: 'image/png' },
-  ];
-
+  // 1. Update Native Android MediaSession Foreground Service if running in APK
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: track.title,
-      artist: track.artist || 'PlayLish Master Audio',
-      album: track.album || 'PlayLish Hi-Res Audio',
-      artwork: artworkList,
-    });
-  } catch (err) {
-    console.warn('Failed to update MediaSession metadata:', err);
+    if (window.PlayLishNativeBridge) {
+      window.PlayLishNativeBridge.updateMediaSession(
+        title,
+        artist,
+        album,
+        isPlaying,
+        Math.round(currentTimeSec * 1000),
+        Math.round(effectiveDuration * 1000)
+      );
+    }
+  } catch (e) {
+    console.warn('Native MediaSession bridge update warning:', e);
   }
+
+  // 2. Update Web MediaSession API
+  if ('mediaSession' in navigator && typeof window.MediaMetadata !== 'undefined') {
+    const origin = window.location.origin;
+    const defaultCover = `${origin}/music-cover-default.png`;
+    const icon512 = `${origin}/pwa-512x512.png`;
+    const icon192 = `${origin}/pwa-192x192.png`;
+
+    // Only use safe HTTP/HTTPS URLs or small data URIs (< 64KB) to prevent Binder IPC overflow
+    let safeArtworkUrl = defaultCover;
+    if (track.coverUrl) {
+      if (track.coverUrl.startsWith('http://') || track.coverUrl.startsWith('https://')) {
+        safeArtworkUrl = track.coverUrl;
+      } else if (track.coverUrl.startsWith('data:') && track.coverUrl.length < 65000) {
+        safeArtworkUrl = track.coverUrl;
+      } else if (track.coverUrl.startsWith('/')) {
+        safeArtworkUrl = `${origin}${track.coverUrl}`;
+      }
+    }
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album,
+        artwork: [
+          { src: safeArtworkUrl, sizes: '512x512', type: 'image/png' },
+          { src: icon512, sizes: '512x512', type: 'image/png' },
+          { src: icon192, sizes: '192x192', type: 'image/png' },
+        ],
+      });
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch (err) {
+      console.warn('Web MediaMetadata error:', err);
+    }
+  }
+
+  lastSyncedTrackId = track.id;
+  lastSyncedIsPlaying = isPlaying;
 }
 
 /**
- * Updates playback status (playing/paused) in system Control Center.
+ * Synchronizes play/pause state and position with zero IPC spam.
+ * Only sends updates when playback state changes, user seeks, or every 15s for drift correction.
  */
-export function updateMediaSessionPlaybackState(isPlaying: boolean): void {
-  if (typeof window === 'undefined' || !('mediaSession' in navigator)) {
-    return;
-  }
+export function syncMediaPlaybackState(
+  track: AudioTrack | null,
+  isPlaying: boolean,
+  currentTimeSec: number,
+  durationSec: number,
+  forceSync: boolean = false
+): void {
+  if (typeof window === 'undefined' || !track) return;
 
+  const now = Date.now();
+  const stateChanged =
+    lastSyncedIsPlaying !== isPlaying || lastSyncedTrackId !== track.id;
+  const shouldSyncPosition =
+    forceSync || stateChanged || now - lastPositionSyncTime > 15000;
+
+  if (!shouldSyncPosition) return;
+
+  lastPositionSyncTime = now;
+  lastSyncedIsPlaying = isPlaying;
+
+  const effectiveDuration = durationSec > 0 ? durationSec : track.duration || 0;
+  const safeCurrentTime = Math.max(
+    0,
+    effectiveDuration > 0 ? Math.min(currentTimeSec, effectiveDuration) : currentTimeSec
+  );
+
+  // 1. Update Native Android Service
   try {
-    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-  } catch (err) {
-    console.warn('Failed to update MediaSession playback state:', err);
-  }
-}
-
-/**
- * Updates the timeline seekbar position in Android/iOS Control Center.
- */
-export function updateMediaSessionPositionState(currentTime: number, duration: number): void {
-  if (
-    typeof window === 'undefined' ||
-    !('mediaSession' in navigator) ||
-    !('setPositionState' in navigator.mediaSession) ||
-    !duration ||
-    isNaN(duration) ||
-    duration <= 0
-  ) {
-    return;
-  }
-
-  try {
-    const validPos = Math.min(Math.max(0, currentTime), duration);
-    navigator.mediaSession.setPositionState({
-      duration: duration,
-      playbackRate: 1.0,
-      position: validPos,
-    });
+    if (window.PlayLishNativeBridge) {
+      if (lastSyncedTrackId !== track.id) {
+        publishMediaTrackMetadata(track, isPlaying, safeCurrentTime, effectiveDuration);
+      } else {
+        window.PlayLishNativeBridge.updatePlaybackState(
+          isPlaying,
+          Math.round(safeCurrentTime * 1000),
+          Math.round(effectiveDuration * 1000)
+        );
+      }
+    }
   } catch {
-    // Ignore harmless position state errors
+    // ignore
+  }
+
+  // 2. Update Web MediaSession
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+      if (
+        'setPositionState' in navigator.mediaSession &&
+        effectiveDuration > 0 &&
+        isFinite(effectiveDuration)
+      ) {
+        navigator.mediaSession.setPositionState({
+          duration: effectiveDuration,
+          playbackRate: 1.0,
+          position: safeCurrentTime,
+        });
+      }
+    } catch {
+      // ignore position state errors
+    }
   }
 }

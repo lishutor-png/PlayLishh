@@ -46,30 +46,58 @@ export function getDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-// Track operations
-export async function saveTrack(track: AudioTrack, audioBlob?: Blob): Promise<void> {
+// Track operations (Zero-Copy Metadata Only — Never duplicates MP3/FLAC binaries into IndexedDB)
+export async function saveTrack(track: AudioTrack): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['tracks', 'audioBlobs'], 'readwrite');
-  
-  // Strip blobData from metadata object before storing in tracks store
+  const tx = db.transaction(['tracks'], 'readwrite');
+
+  // Strip any blobData or oversized Base64 cover before storing lightweight metadata
   const { blobData, ...trackMeta } = track;
-  
+  if (trackMeta.coverUrl && trackMeta.coverUrl.startsWith('data:') && trackMeta.coverUrl.length > 65000) {
+    delete trackMeta.coverUrl;
+  }
+
   tx.objectStore('tracks').put(trackMeta);
-  
-  if (audioBlob || blobData) {
-    const blobToStore = audioBlob || blobData;
-    tx.objectStore('audioBlobs').put({
-      trackId: track.id,
-      blob: blobToStore,
-      mimeType: blobToStore?.type || 'audio/mp3',
-      savedAt: Date.now()
-    });
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function saveTracksBatch(tracksToSave: AudioTrack[]): Promise<void> {
+  if (tracksToSave.length === 0) return;
+  const db = await getDB();
+  const tx = db.transaction(['tracks'], 'readwrite');
+  const store = tx.objectStore('tracks');
+
+  for (const track of tracksToSave) {
+    const { blobData, ...trackMeta } = track;
+    if (trackMeta.coverUrl && trackMeta.coverUrl.startsWith('data:') && trackMeta.coverUrl.length > 65000) {
+      delete trackMeta.coverUrl;
+    }
+    store.put(trackMeta);
   }
 
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+/**
+ * Purges any legacy copied audio blobs from IndexedDB to reclaim device RAM & disk storage.
+ */
+export async function purgeLegacyCopiedBlobs(): Promise<void> {
+  try {
+    const db = await getDB();
+    if (db.objectStoreNames.contains('audioBlobs')) {
+      const tx = db.transaction('audioBlobs', 'readwrite');
+      tx.objectStore('audioBlobs').clear();
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export async function getAllTracks(): Promise<AudioTrack[]> {
@@ -82,20 +110,9 @@ export async function getAllTracks(): Promise<AudioTrack[]> {
   });
 }
 
-export async function getTrackBlob(trackId: string): Promise<Blob | null> {
-  const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('audioBlobs', 'readonly');
-    const request = tx.objectStore('audioBlobs').get(trackId);
-    request.onsuccess = () => {
-      if (request.result && request.result.blob) {
-        resolve(request.result.blob);
-      } else {
-        resolve(null);
-      }
-    };
-    request.onerror = () => reject(request.error);
-  });
+export async function getTrackBlob(_trackId: string): Promise<Blob | null> {
+  // Zero-copy architecture: audio binaries are streamed directly from file/URI, not copied into DB
+  return null;
 }
 
 export async function updateTrackLyrics(trackId: string, lyrics: string): Promise<void> {

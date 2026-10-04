@@ -16,8 +16,8 @@ export async function extractAudioMetadata(file: File | Blob): Promise<Extracted
   const result: ExtractedAudioMetadata = {};
 
   try {
-    // Read first 2MB slice for ID3v2 & MP4 header
-    const headerSlice = await file.slice(0, Math.min(file.size, 2 * 1024 * 1024)).arrayBuffer();
+    // Read lightweight 256KB slice for fast ID3v2 / FLAC / MP4 text tags without RAM spikes
+    const headerSlice = await file.slice(0, Math.min(file.size, 256 * 1024)).arrayBuffer();
     const view = new DataView(headerSlice);
 
     // 1. Check ID3v2 (starts with 'ID3')
@@ -265,7 +265,11 @@ function decodeApicFrame(bytes: Uint8Array): string | undefined {
 /**
  * Helper to turn Uint8Array binary image data to Base64 Data URL
  */
-function uint8ArrayToDataUrl(uint8: Uint8Array, mime: string): string {
+function uint8ArrayToDataUrl(uint8: Uint8Array, mime: string): string | undefined {
+  // Prevent allocating multi-megabyte Base64 strings in memory & React state
+  if (uint8.length > 48 * 1024) {
+    return undefined;
+  }
   let binary = '';
   const chunkSize = 8192;
   for (let i = 0; i < uint8.length; i += chunkSize) {

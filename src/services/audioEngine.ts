@@ -81,93 +81,105 @@ class AudioEngine {
 
   public init(audioEl: HTMLAudioElement) {
     this.audioElement = audioEl;
+    this.updateMasterGain();
+  }
 
-    const setupAudioContext = () => {
-      if (this.ctx) return;
-      try {
-        const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        this.ctx = new AudioCtxClass();
+  private isDspRequired(): boolean {
+    if (this.gainBoost > 1.01) return true;
+    if (this.bassBoostVal > 0) return true;
+    if (this.eqBandsState.some((b) => Math.abs(b) > 0.1)) return true;
+    return false;
+  }
 
-        if (this.audioElement) {
-          this.sourceNode = this.ctx.createMediaElementSource(this.audioElement);
+  private setupAudioContext() {
+    if (this.ctx || !this.audioElement) return;
+    try {
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new AudioCtxClass();
 
-          // 1. Preamp Gain (Volume Booster for low-volume tracks)
-          this.preampGainNode = this.ctx.createGain();
-          this.preampGainNode.gain.value = this.gainBoost;
-
-          // 2. Bass Boost Filter (Sub-bass peak 50Hz)
-          this.bassBoostFilter = this.ctx.createBiquadFilter();
-          this.bassBoostFilter.type = 'lowshelf';
-          this.bassBoostFilter.frequency.value = 80;
-          this.bassBoostFilter.gain.value = (this.bassBoostVal / 100) * 12;
-
-          // 3. 5-Band Equalizer Filters
-          this.eqFilters = EQ_FREQUENCIES.map((freqDef, idx) => {
-            const filter = this.ctx!.createBiquadFilter();
-            filter.type = freqDef.type;
-            filter.frequency.value = freqDef.freq;
-            filter.gain.value = this.eqBandsState[idx] || 0;
-            return filter;
-          });
-
-          // 4. Dynamics Compressor (Anti-Clipping / Limiter to ensure pure sound when boosting)
-          this.compressorNode = this.ctx.createDynamicsCompressor();
-          this.compressorNode.threshold.setValueAtTime(-2, this.ctx.currentTime);
-          this.compressorNode.knee.setValueAtTime(30, this.ctx.currentTime);
-          this.compressorNode.ratio.setValueAtTime(12, this.ctx.currentTime);
-          this.compressorNode.attack.setValueAtTime(0.003, this.ctx.currentTime);
-          this.compressorNode.release.setValueAtTime(0.25, this.ctx.currentTime);
-
-          // 5. Master Gain Node (Enforces user volume + safe limit cap)
-          this.masterGainNode = this.ctx.createGain();
-          this.updateMasterGain();
-
-          // 6. Analyser Node (Visualizer FFT)
-          this.analyserNode = this.ctx.createAnalyser();
-          this.analyserNode.fftSize = 256;
-          this.analyserNode.smoothingTimeConstant = 0.82;
-
-          // Connect Audio Graph:
-          // Source -> Preamp -> BassBoost -> EQ Filters in series -> Compressor -> MasterGain -> Analyser -> Destination
-          let lastNode: AudioNode = this.sourceNode;
-          lastNode.connect(this.preampGainNode);
-          lastNode = this.preampGainNode;
-
-          lastNode.connect(this.bassBoostFilter);
-          lastNode = this.bassBoostFilter;
-
-          for (const eqFilter of this.eqFilters) {
-            lastNode.connect(eqFilter);
-            lastNode = eqFilter;
-          }
-
-          lastNode.connect(this.compressorNode);
-          this.compressorNode.connect(this.masterGainNode);
-          this.masterGainNode.connect(this.analyserNode);
-          this.analyserNode.connect(this.ctx.destination);
+      // Keep AudioContext alive if Android attempts to suspend it during active background playback
+      this.ctx.onstatechange = () => {
+        if (
+          this.ctx &&
+          (this.ctx.state === 'suspended' || (this.ctx.state as string) === 'interrupted') &&
+          this.audioElement &&
+          !this.audioElement.paused
+        ) {
+          this.ctx.resume().catch(() => {});
         }
-      } catch (err) {
-        console.warn('Web Audio API initialized with fallback:', err);
-      }
-    };
+      };
 
-    // User gesture unlock for audio context
-    const unlock = () => {
-      setupAudioContext();
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume();
-      }
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('touchstart', unlock);
-    };
+      this.sourceNode = this.ctx.createMediaElementSource(this.audioElement);
 
-    window.addEventListener('click', unlock, { once: true });
-    window.addEventListener('touchstart', unlock, { once: true });
+      // Reset element volume to 1.0 since masterGainNode will now control output level
+      this.audioElement.volume = 1.0;
+
+      // 1. Preamp Gain (Volume Booster for low-volume tracks)
+      this.preampGainNode = this.ctx.createGain();
+      this.preampGainNode.gain.value = this.gainBoost;
+
+      // 2. Bass Boost Filter (Sub-bass peak 80Hz)
+      this.bassBoostFilter = this.ctx.createBiquadFilter();
+      this.bassBoostFilter.type = 'lowshelf';
+      this.bassBoostFilter.frequency.value = 80;
+      this.bassBoostFilter.gain.value = (this.bassBoostVal / 100) * 12;
+
+      // 3. 5-Band Equalizer Filters
+      this.eqFilters = EQ_FREQUENCIES.map((freqDef, idx) => {
+        const filter = this.ctx!.createBiquadFilter();
+        filter.type = freqDef.type;
+        filter.frequency.value = freqDef.freq;
+        filter.gain.value = this.eqBandsState[idx] || 0;
+        return filter;
+      });
+
+      // 4. Dynamics Compressor (Anti-Clipping / Limiter to ensure pure sound when boosting)
+      this.compressorNode = this.ctx.createDynamicsCompressor();
+      this.compressorNode.threshold.setValueAtTime(-2, this.ctx.currentTime);
+      this.compressorNode.knee.setValueAtTime(30, this.ctx.currentTime);
+      this.compressorNode.ratio.setValueAtTime(12, this.ctx.currentTime);
+      this.compressorNode.attack.setValueAtTime(0.003, this.ctx.currentTime);
+      this.compressorNode.release.setValueAtTime(0.25, this.ctx.currentTime);
+
+      // 5. Master Gain Node (Enforces user volume + safe limit cap)
+      this.masterGainNode = this.ctx.createGain();
+      this.updateMasterGain();
+
+      // 6. Analyser Node (Visualizer FFT)
+      this.analyserNode = this.ctx.createAnalyser();
+      this.analyserNode.fftSize = 256;
+      this.analyserNode.smoothingTimeConstant = 0.82;
+
+      // Connect Audio Graph:
+      let lastNode: AudioNode = this.sourceNode;
+      lastNode.connect(this.preampGainNode);
+      lastNode = this.preampGainNode;
+
+      lastNode.connect(this.bassBoostFilter);
+      lastNode = this.bassBoostFilter;
+
+      for (const eqFilter of this.eqFilters) {
+        lastNode.connect(eqFilter);
+        lastNode = eqFilter;
+      }
+
+      lastNode.connect(this.compressorNode);
+      this.compressorNode.connect(this.masterGainNode);
+      this.masterGainNode.connect(this.analyserNode);
+      this.analyserNode.connect(this.ctx.destination);
+    } catch (err) {
+      console.warn('Web Audio API initialized with fallback:', err);
+    }
   }
 
   public ensureContextRunning() {
+    if (this.isDspRequired() && !this.ctx) {
+      this.setupAudioContext();
+    }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -185,6 +197,7 @@ class AudioEngine {
   // Preamp Gain Boost (1.0 = 0dB, 1.5 = +3.5dB, 2.0 = +6dB, 2.5 = +8dB)
   public setGainBoost(boost: number) {
     this.gainBoost = Math.max(1.0, Math.min(2.5, boost));
+    this.ensureContextRunning();
     if (this.preampGainNode && this.ctx) {
       this.preampGainNode.gain.setTargetAtTime(this.gainBoost, this.ctx.currentTime, 0.05);
     }
@@ -192,6 +205,7 @@ class AudioEngine {
 
   public setEQBand(index: number, gainDb: number) {
     this.eqBandsState[index] = gainDb;
+    this.ensureContextRunning();
     if (this.eqFilters[index] && this.ctx) {
       this.eqFilters[index].gain.setTargetAtTime(gainDb, this.ctx.currentTime, 0.05);
     }
@@ -199,6 +213,7 @@ class AudioEngine {
 
   public setEQPreset(preset: EqualizerPreset) {
     this.eqBandsState = [...preset.gains];
+    this.ensureContextRunning();
     if (this.ctx) {
       this.eqFilters.forEach((filter, idx) => {
         filter.gain.setTargetAtTime(preset.gains[idx] || 0, this.ctx!.currentTime, 0.05);
@@ -211,6 +226,7 @@ class AudioEngine {
 
   public setBassBoost(value: number) {
     this.bassBoostVal = Math.max(0, Math.min(100, value));
+    this.ensureContextRunning();
     if (this.bassBoostFilter && this.ctx) {
       const dbGain = (this.bassBoostVal / 100) * 12;
       this.bassBoostFilter.gain.setTargetAtTime(dbGain, this.ctx.currentTime, 0.05);
@@ -247,14 +263,39 @@ class AudioEngine {
   }
 
   public getAnalyserData(dataArray: Uint8Array): void {
-    if (this.analyserNode) {
+    if (this.analyserNode && this.ctx && this.ctx.state === 'running') {
       this.analyserNode.getByteFrequencyData(dataArray);
+      return;
+    }
+    // Lightweight hardware-playback visualizer fallback when WebAudio DSP is bypassed
+    if (this.audioElement && !this.audioElement.paused) {
+      const now = performance.now() * 0.006;
+      const len = dataArray.length;
+      for (let i = 0; i < len; i++) {
+        const wave =
+          Math.sin(now + i * 0.25) * 0.4 +
+          Math.cos(now * 1.7 - i * 0.15) * 0.35 +
+          Math.sin(now * 2.9 + i * 0.5) * 0.25;
+        const envelope = Math.max(0.15, 1 - i / (len * 1.1));
+        dataArray[i] = Math.min(255, Math.max(12, Math.floor((wave * 0.5 + 0.55) * 210 * envelope)));
+      }
+    } else {
+      dataArray.fill(0);
     }
   }
 
   public getWaveformData(dataArray: Uint8Array): void {
-    if (this.analyserNode) {
+    if (this.analyserNode && this.ctx && this.ctx.state === 'running') {
       this.analyserNode.getByteTimeDomainData(dataArray);
+      return;
+    }
+    if (this.audioElement && !this.audioElement.paused) {
+      const now = performance.now() * 0.008;
+      for (let i = 0; i < dataArray.length; i++) {
+        dataArray[i] = Math.floor(128 + Math.sin(now + i * 0.18) * 42 * Math.cos(now * 0.5 + i * 0.05));
+      }
+    } else {
+      dataArray.fill(128);
     }
   }
 

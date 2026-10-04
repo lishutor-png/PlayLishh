@@ -79,10 +79,10 @@ export interface AudioSettings {
   offlineOnly: boolean;
 }
 
-export type ActiveTab = 'tracks' | 'playlists' | 'equalizer' | 'offline' | 'settings';
+export type ActiveTab = 'tracks' | 'playlists' | 'equalizer' | 'settings';
 
 export interface PlaybackSource {
-  type: 'all' | 'playlist' | 'offline';
+  type: 'all' | 'playlist';
   id?: string;
   title?: string;
 }

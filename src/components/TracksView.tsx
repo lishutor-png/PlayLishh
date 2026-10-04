@@ -16,12 +16,14 @@ import {
   Trash2,
   Shuffle,
   RotateCcw,
-  AlertTriangle,
   FileText,
+  FolderOpen,
+  Smartphone,
 } from 'lucide-react';
-import { AudioTrack, Playlist, AudioFormat } from '../types';
+import { AudioTrack, Playlist } from '../types';
 import { AppLogo } from './AppLogo';
 import { ImportSongModal } from './ImportSongModal';
+import { isNativeAndroidApp } from '../services/fileRegistry';
 
 interface TracksViewProps {
   tracks: AudioTrack[];
@@ -37,6 +39,7 @@ interface TracksViewProps {
   onToggleFavorite: (trackId: string) => void;
   onAddTrackToPlaylist: (playlistId: string, trackId: string) => void;
   onImportFiles: (files: FileList | File[]) => void;
+  onScanDeviceMusic?: () => Promise<void>;
   onDeleteTrack: (trackId: string) => void;
   onOpenLyricEditor?: (track: AudioTrack) => void;
 }
@@ -55,6 +58,7 @@ export function TracksView({
   onToggleFavorite,
   onAddTrackToPlaylist,
   onImportFiles,
+  onScanDeviceMusic,
   onDeleteTrack,
   onOpenLyricEditor,
 }: TracksViewProps) {
@@ -90,8 +94,11 @@ export function TracksView({
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       onImportFiles(e.target.files);
+      e.target.value = '';
     }
   };
+
+  const isAndroid = isNativeAndroidApp();
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -148,14 +155,14 @@ export function TracksView({
           </div>
         </div>
 
-        {/* Action Buttons Row: Big, Ergonomic & Thumb-friendly */}
+        {/* Action Buttons Row: Direct 1-Tap Access (Zero-Copy) */}
         <div className="grid grid-cols-2 sm:flex sm:items-center sm:justify-end gap-2 relative z-10 pt-1 border-t border-white/5">
           {tracks.length > 1 && (
             isShuffleActive && onDisableShuffle ? (
               <button
                 id="btn-stop-shuffle-hero"
                 onClick={onDisableShuffle}
-                className="col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs border border-rose-500/40 cursor-pointer shadow-md transition-all active:scale-95"
+                className="col-span-2 sm:col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs border border-rose-500/40 cursor-pointer shadow-md transition-all active:scale-95"
                 title="Hentikan Mode Acak (Kembali ke Urutan Normal)"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
@@ -165,7 +172,7 @@ export function TracksView({
               <button
                 id="btn-shuffle-all-hero"
                 onClick={() => onShufflePlayAll(filteredTracks.length > 0 ? filteredTracks : tracks)}
-                className="col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
+                className="col-span-2 sm:col-span-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
                 title="Putar Acak Semua Lagu"
               >
                 <Shuffle className="w-3.5 h-3.5 text-[#F27D26]" />
@@ -173,16 +180,37 @@ export function TracksView({
               </button>
             ) : null
           )}
+
+          {isAndroid && onScanDeviceMusic ? (
+            <button
+              id="btn-scan-device-hero"
+              onClick={() => onScanDeviceMusic()}
+              className="col-span-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
+              title="Pindai Semua Lagu di Penyimpanan HP Tanpa Salin File"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Pindai HP</span>
+            </button>
+          ) : (
+            <button
+              id="btn-open-folder-hero"
+              onClick={() => folderInputRef.current?.click()}
+              className="col-span-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer shadow-md transition-all active:scale-95"
+              title="Buka Folder Musik Langsung"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+              <span>Buka Folder</span>
+            </button>
+          )}
+
           <button
             id="btn-import-hero"
-            onClick={() => setIsImportModalOpen(true)}
-            className={`${
-              tracks.length > 1 ? 'col-span-1 sm:flex-none' : 'col-span-2 sm:flex-none'
-            } flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95`}
-            title="Pilih & Masukkan Lagu (MP3, FLAC, dll + .LRC)"
+            onClick={() => fileInputRef.current?.click()}
+            className="col-span-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95"
+            title="Pilih File Lagu MP3, FLAC, WAV & .LRC Langsung"
           >
-            <Upload className="w-4 h-4" />
-            <span>Pilih Lagu & .LRC</span>
+            <Upload className="w-3.5 h-3.5" />
+            <span>Pilih Lagu</span>
           </button>
         </div>
       </div>
@@ -213,9 +241,15 @@ export function TracksView({
             Daftar Lagu ({tracks.length})
           </h2>
           <p className="text-[11px] text-white/50">
-            Koleksi audio Hi-Res dan format lossless tersimpan di perangkat
+            Putar langsung dari memori perangkat tanpa salin file (Zero-Copy)
           </p>
         </div>
+        <button
+          onClick={() => setIsImportModalOpen(true)}
+          className="text-[11px] font-semibold text-[#F27D26] hover:text-[#ff8a3d] bg-[#F27D26]/10 px-2.5 py-1 rounded-xl border border-[#F27D26]/25 cursor-pointer transition-colors"
+        >
+          + Opsi Akses
+        </button>
       </div>
 
       {/* Search Input with Clear Button */}
@@ -460,7 +494,7 @@ export function TracksView({
         )}
       </div>
 
-      {/* Delete Track Confirmation Modal */}
+      {/* Remove Track From List Confirmation Modal */}
       {trackToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="w-full max-w-sm bg-[#0E0E0E] border border-rose-500/30 rounded-3xl p-6 shadow-2xl text-white space-y-4 backdrop-blur-2xl">
@@ -469,8 +503,8 @@ export function TracksView({
                 <Trash2 className="w-5 h-5 text-rose-400" />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-white">Hapus Lagu Tersimpan?</h3>
-                <p className="text-[11px] text-white/50">Tindakan ini permanen</p>
+                <h3 className="font-bold text-sm text-white">Keluarkan dari Daftar Lagu?</h3>
+                <p className="text-[11px] text-white/50">File asli di HP tetap aman</p>
               </div>
             </div>
 
@@ -480,7 +514,7 @@ export function TracksView({
             </div>
 
             <p className="text-xs text-white/60 leading-relaxed">
-              File audio dan data lagu ini akan dihapus dari memori lokal (IndexedDB) serta semua playlist.
+              Lagu ini hanya dikeluarkan dari daftar putar PlayLish. Berkas MP3/audio asli di penyimpanan perangkat Anda tidak terhapus.
             </p>
 
             <div className="flex gap-2.5 pt-2">
@@ -497,7 +531,7 @@ export function TracksView({
                 }}
                 className="flex-1 py-2.5 rounded-2xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs border border-rose-500/40 cursor-pointer transition-colors"
               >
-                Ya, Hapus Lagu
+                Ya, Keluarkan
               </button>
             </div>
           </div>
@@ -571,11 +605,12 @@ export function TracksView({
         </div>
       )}
 
-      {/* Import Audio & Auto LRC Matching Modal */}
+      {/* Import Audio & Auto LRC Matching Modal (Zero-Copy Direct Stream) */}
       <ImportSongModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportFiles={onImportFiles}
+        onScanDeviceMusic={onScanDeviceMusic}
         existingTracksCount={tracks.length}
       />
     </div>

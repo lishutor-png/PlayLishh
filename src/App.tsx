@@ -12,6 +12,8 @@ import {
 import {
   getAllTracks,
   saveTrack,
+  saveTracksBatch,
+  purgeLegacyCopiedBlobs,
   updateTrackLyrics,
   deleteTrack as deleteTrackDB,
   getAllPlaylists,
@@ -19,32 +21,31 @@ import {
   deletePlaylist as deletePlaylistDB,
   loadSettings,
   saveSettings,
-  getTrackBlob,
   getLocalStoredSettings,
   getStoredLastTrackId,
   saveStoredLastTrackId,
 } from './services/db';
 import {
   registerTrackFile,
-  getTrackAudioFile,
+  unregisterTrackFile,
+  resolveDirectStreamUrl,
   pairAudioAndLrcFiles,
   normalizeSongBaseName,
+  scanAndroidDeviceMusic,
 } from './services/fileRegistry';
 import { extractAudioMetadata } from './services/metadataExtractor';
 import { INITIAL_DEFAULT_TRACKS, prepareTrackBlob } from './services/defaultTracks';
-import { audioEngine, EQ_PRESETS } from './services/audioEngine';
+import { audioEngine } from './services/audioEngine';
 import {
-  setupMediaSession,
-  updateMediaSessionMetadata,
-  updateMediaSessionPlaybackState,
-  updateMediaSessionPositionState,
+  initMediaSessionController,
+  publishMediaTrackMetadata,
+  syncMediaPlaybackState,
 } from './services/mediaSession';
 import { AndroidStatusBar } from './components/AndroidStatusBar';
 import { BottomNav } from './components/BottomNav';
 import { TracksView } from './components/TracksView';
 import { PlaylistView } from './components/PlaylistView';
 import { EqualizerView } from './components/EqualizerView';
-import { OfflineView } from './components/OfflineView';
 import { SettingsView } from './components/SettingsView';
 import { NowPlayingBar } from './components/NowPlayingBar';
 import { NowPlayingFull } from './components/NowPlayingFull';
@@ -130,20 +131,20 @@ export default function App() {
   } | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const activeBlobUrlRef = useRef<string | null>(null);
   const lastPrevClickRef = useRef<number>(0);
+  const lastTimeUpdateRef = useRef<number>(0);
 
-  // Initialize DB, default tracks & restore persisted settings
+  // Initialize DB, purge legacy copied blobs, & restore persisted settings
   useEffect(() => {
     async function initData() {
       try {
+        // Free up phone storage/RAM from any legacy copied audio blobs
+        await purgeLegacyCopiedBlobs();
+
         let savedTracks = await getAllTracks();
         if (savedTracks.length === 0) {
-          // Initialize default Hi-Res demo tracks
-          for (const track of INITIAL_DEFAULT_TRACKS) {
-            const blob = await prepareTrackBlob(track);
-            await saveTrack(track, blob);
-          }
+          // Initialize default Hi-Res demo tracks (Metadata only — zero disk bloat)
+          await saveTracksBatch(INITIAL_DEFAULT_TRACKS);
           savedTracks = await getAllTracks();
         }
 
@@ -284,45 +285,28 @@ export default function App() {
     return () => clearInterval(interval);
   }, [sleepTimer.active, sleepTimer.targetEndTime, sleepTimer.autoFade]);
 
-  // Load track audio source into HTMLAudioElement
+  // Load track audio source into HTMLAudioElement via Zero-Copy Direct Stream
   const loadTrackSource = useCallback(async (track: AudioTrack, autoPlay: boolean = false) => {
     if (!audioRef.current) return;
 
-    const prevBlobUrl = activeBlobUrlRef.current;
-
     try {
-      const fileOrBlob = await getTrackAudioFile(track);
-      let src = '';
-      if (fileOrBlob) {
-        src = URL.createObjectURL(fileOrBlob);
-        activeBlobUrlRef.current = src;
-      } else if (track.audioUrl) {
-        src = track.audioUrl;
-        activeBlobUrlRef.current = null;
-      } else {
-        // Prepare procedural blob on demand if needed
-        const synthBlob = await prepareTrackBlob(track);
-        src = URL.createObjectURL(synthBlob);
-        activeBlobUrlRef.current = src;
+      const src = await resolveDirectStreamUrl(track, prepareTrackBlob);
+      if (!src) {
+        console.warn('No direct audio stream available for track:', track.title);
+        return;
       }
 
       audioRef.current.src = src;
       audioRef.current.load();
-
-      // Revoke previous blob url safely with delay so ongoing playback/decoding is not interrupted
-      if (prevBlobUrl && prevBlobUrl !== src) {
-        setTimeout(() => {
-          try {
-            URL.revokeObjectURL(prevBlobUrl);
-          } catch (_) {}
-        }, 3500);
-      }
+      lastTimeUpdateRef.current = 0;
+      setCurrentTime(0);
 
       if (autoPlay) {
         audioEngine.ensureContextRunning();
         try {
           await audioRef.current.play();
           setIsPlaying(true);
+          publishMediaTrackMetadata(track, true, 0, track.duration);
         } catch (err) {
           console.warn('AutoPlay delayed, attaching canplay listener:', err);
           const el = audioRef.current;
@@ -332,6 +316,7 @@ export default function App() {
               try {
                 await el.play();
                 setIsPlaying(true);
+                publishMediaTrackMetadata(track, true, 0, el.duration || track.duration);
               } catch (e2) {
                 console.warn('Playback on canplay retry error:', e2);
               }
@@ -339,6 +324,8 @@ export default function App() {
             el.addEventListener('canplay', onCanPlay, { once: true });
           }
         }
+      } else {
+        publishMediaTrackMetadata(track, false, 0, track.duration);
       }
     } catch (err) {
       console.error('Failed to load audio source:', err);
@@ -431,7 +418,13 @@ export default function App() {
       try {
         await audioRef.current.play();
         setIsPlaying(true);
-        updateMediaSessionPlaybackState(true);
+        syncMediaPlaybackState(
+          currentTrack,
+          true,
+          audioRef.current.currentTime,
+          audioRef.current.duration || currentTrack.duration,
+          true
+        );
       } catch (err) {
         console.warn('Playback error:', err);
       }
@@ -442,8 +435,14 @@ export default function App() {
     if (!audioRef.current) return;
     audioRef.current.pause();
     setIsPlaying(false);
-    updateMediaSessionPlaybackState(false);
-  }, []);
+    syncMediaPlaybackState(
+      currentTrack,
+      false,
+      audioRef.current.currentTime,
+      audioRef.current.duration || currentTrack?.duration || 0,
+      true
+    );
+  }, [currentTrack]);
 
   const togglePlay = useCallback(async () => {
     if (isPlaying) {
@@ -460,11 +459,12 @@ export default function App() {
     if (currentIndex >= 0 && currentIndex < queue.length - 1) {
       const next = queue[currentIndex + 1];
       setCurrentTrack(next);
+      saveStoredLastTrackId(next.id);
       loadTrackSource(next, true);
     } else if (settings.repeatMode === 'all' || sleepTimer.active) {
-      // Loop queue if repeatMode is 'all' or sleepTimer is active, so playback doesn't stop before timer ends
       const first = queue[0];
       setCurrentTrack(first);
+      saveStoredLastTrackId(first.id);
       loadTrackSource(first, true);
     } else {
       setIsPlaying(false);
@@ -478,13 +478,15 @@ export default function App() {
     const timeSinceLastClick = now - lastPrevClickRef.current;
     lastPrevClickRef.current = now;
 
-    // If played > 2.5s and first click, rewind to start
-    // If clicked again within 1.5s, or if played <= 2.5s, jump to previous track
-    if (currentTime > 2.5 && timeSinceLastClick > 1500) {
+    // Read currentTime directly from audio element so handlePrevTrack never re-creates on timeupdate
+    const actualTime = audioRef.current ? audioRef.current.currentTime : 0;
+
+    if (actualTime > 2.5 && timeSinceLastClick > 1500) {
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
       }
       setCurrentTime(0);
+      syncMediaPlaybackState(currentTrack, isPlaying, 0, duration || currentTrack.duration, true);
       return;
     }
 
@@ -492,25 +494,45 @@ export default function App() {
     if (currentIndex > 0) {
       const prev = queue[currentIndex - 1];
       setCurrentTrack(prev);
+      saveStoredLastTrackId(prev.id);
       loadTrackSource(prev, true);
     } else {
       const last = queue[queue.length - 1];
       setCurrentTrack(last);
+      saveStoredLastTrackId(last.id);
       loadTrackSource(last, true);
     }
-  }, [queue, currentTrack, currentTime, loadTrackSource]);
+  }, [queue, currentTrack, isPlaying, duration, loadTrackSource]);
 
-  // Audio element events
+  // Throttled Audio element events to prevent React re-render storm & 1-hour memory exhaustion
   const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
+    const el = audioRef.current;
+    if (!el) return;
+    const nowTime = el.currentTime;
+    if (Math.abs(nowTime - lastTimeUpdateRef.current) >= 0.25 || nowTime === 0) {
+      lastTimeUpdateRef.current = nowTime;
+      setCurrentTime(nowTime);
+      syncMediaPlaybackState(currentTrack, !el.paused, nowTime, el.duration || duration, false);
     }
   };
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration || currentTrack?.duration || 0);
+    const el = audioRef.current;
+    if (!el) return;
+    const realDur =
+      el.duration && !isNaN(el.duration) && isFinite(el.duration)
+        ? Math.round(el.duration)
+        : currentTrack?.duration || 0;
+    setDuration(realDur);
+
+    if (currentTrack && realDur > 0 && currentTrack.duration !== realDur) {
+      const updated = { ...currentTrack, duration: realDur };
+      setCurrentTrack(updated);
+      setTracks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      saveTrack(updated).catch(() => {});
     }
+
+    syncMediaPlaybackState(currentTrack, !el.paused, el.currentTime, realDur, true);
   };
 
   const handleEnded = () => {
@@ -524,16 +546,27 @@ export default function App() {
     }
   };
 
-  const handleSeek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
+  const handleSeek = useCallback(
+    (time: number) => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = time;
+        lastTimeUpdateRef.current = time;
+        setCurrentTime(time);
+        syncMediaPlaybackState(
+          currentTrack,
+          !audioRef.current.paused,
+          time,
+          audioRef.current.duration || duration,
+          true
+        );
+      }
+    },
+    [currentTrack, duration]
+  );
 
-  // MediaSession API integration for Control Center (Pusat Kontrol), Lockscreen, Notifications & Headset keys
+  // Rebuilt MediaSession & Native Android Notification Controller (Registered stably without timeupdate churn)
   useEffect(() => {
-    const cleanup = setupMediaSession({
+    const cleanup = initMediaSessionController({
       onPlay: handlePlay,
       onPause: handlePause,
       onPrev: handlePrevTrack,
@@ -543,22 +576,15 @@ export default function App() {
     return cleanup;
   }, [handlePlay, handlePause, handlePrevTrack, handleNextTrack, handleSeek]);
 
-  // Update Media Session track metadata (Title, Artist, Album, Multi-res Artworks)
+  // Publish track metadata when active track changes
   useEffect(() => {
-    updateMediaSessionMetadata(currentTrack);
+    publishMediaTrackMetadata(
+      currentTrack,
+      isPlaying,
+      audioRef.current?.currentTime || 0,
+      duration || currentTrack?.duration || 0
+    );
   }, [currentTrack]);
-
-  // Synchronize Media Session playback state (Playing vs Paused) in Control Center
-  useEffect(() => {
-    updateMediaSessionPlaybackState(isPlaying);
-  }, [isPlaying]);
-
-  // Synchronize Media Session position state (Seekbar progress) in Control Center
-  useEffect(() => {
-    if (duration > 0) {
-      updateMediaSessionPositionState(currentTime, duration);
-    }
-  }, [currentTime, duration]);
 
   // Toggle favorite
   const handleToggleFavorite = async (trackId: string) => {
@@ -718,9 +744,10 @@ export default function App() {
         return;
       }
 
-      // Case B: Importing Audio Files (with automatic .LRC pairing)
+      // Case B: Zero-Copy Direct Linking of Audio Files (with automatic .LRC pairing)
       const newLoadedTracks: AudioTrack[] = [];
       let autoLrcCount = 0;
+      const nowBase = Date.now();
 
       for (let i = 0; i < matchedPairs.length; i++) {
         const pair = matchedPairs[i];
@@ -732,29 +759,16 @@ export default function App() {
         }
 
         const cleanName = file.name.replace(/\.[^/.]+$/, '');
-        const trackId = `track-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+        const trackId = `track-${nowBase}-${i}-${Math.random().toString(36).slice(2, 6)}`;
 
-        // 1. Extract Embedded ID3/FLAC/MP4 tags and embedded artwork
+        // 1. Lightweight 256KB header slice metadata extraction (no full file copy!)
         const meta = await extractAudioMetadata(file);
 
-        // 2. Extract actual audio duration
-        let realDuration = 180;
-        const tempUrl = URL.createObjectURL(file);
-        try {
-          const tempAudio = new Audio(tempUrl);
-          await new Promise((resolve) => {
-            tempAudio.onloadedmetadata = () => resolve(null);
-            tempAudio.onerror = () => resolve(null);
-            setTimeout(resolve, 900);
-          });
-          if (tempAudio.duration && !isNaN(tempAudio.duration) && isFinite(tempAudio.duration)) {
-            realDuration = Math.round(tempAudio.duration);
-          }
-        } catch {
-          realDuration = 180;
-        } finally {
-          URL.revokeObjectURL(tempUrl);
-        }
+        // 2. Estimate duration from file size & format bitrate (exact duration updates automatically on play)
+        const estimatedDuration = Math.max(
+          30,
+          Math.min(1200, Math.round(file.size / (format === 'FLAC' || format === 'WAV' ? 176000 : 32000)))
+        );
 
         // 3. Read matching .LRC file if found alongside the audio
         let lyricsText = meta.lyrics;
@@ -781,7 +795,7 @@ export default function App() {
           title: meta.title || cleanName,
           artist: meta.artist || 'Lokal Audio',
           album: meta.album || 'Koleksi Lokal',
-          duration: realDuration,
+          duration: estimatedDuration,
           coverUrl: meta.coverUrl,
           lyrics: lyricsText,
           format,
@@ -795,18 +809,18 @@ export default function App() {
           lrcFileName,
           isOffline: true,
           isFavorite: false,
-          genre: meta.genre || 'Lokal Lossless',
-          addedAt: Date.now(),
+          genre: meta.genre || 'Direct Stream',
+          addedAt: nowBase - i,
           colorHex: '#F27D26',
         };
 
-        // Register in-memory for instant, zero-copy native streaming
+        // Hold OS File pointer in memory for zero-copy direct streaming (0 bytes copied to DB)
         registerTrackFile(trackId, file);
-
-        // Persist track metadata & audio blob reference
-        await saveTrack(newTrack, file);
         newLoadedTracks.push(newTrack);
       }
+
+      // Persist lightweight metadata in a single fast transaction (no audio blobs copied!)
+      await saveTracksBatch(newLoadedTracks);
 
       // 4. Handle orphan LRC files matching existing or newly loaded tracks
       if (orphanLrcFiles.length > 0) {
@@ -836,21 +850,51 @@ export default function App() {
 
       setImportNotification({
         show: true,
-        message: `${newLoadedTracks.length} Lagu Berhasil Ditambahkan ke Playlist!`,
+        message: `${newLoadedTracks.length} Lagu Ditautkan Langsung (Zero-Copy)!`,
         details:
           autoLrcCount > 0
-            ? `${autoLrcCount} lirik (.LRC) otomatis terhubung & siap berjalan saat lagu diputar.`
-            : 'Lagu siap diputar langsung dari penyimpanan perangkat Anda.',
+            ? `${autoLrcCount} lirik (.LRC) terhubung otomatis tanpa menyalin file MP3 ke memori aplikasi.`
+            : 'Diputar langsung dari penyimpanan perangkat (0 MB duplikasi memori).',
       });
-      setTimeout(() => setImportNotification(null), 5500);
+      setTimeout(() => setImportNotification(null), 5000);
 
       if (newLoadedTracks.length > 0 && !currentTrack) {
         handlePlayTrack(newLoadedTracks[0], [...newLoadedTracks, ...tracks]);
       }
     } catch (err) {
-      console.error('Error importing files:', err);
+      console.error('Error linking files:', err);
     }
   };
+
+  // Native Android MediaStore Scanner (Zero-Copy Direct URI Streaming)
+  const handleScanDeviceMusic = useCallback(async () => {
+    const scannedTracks = await scanAndroidDeviceMusic();
+    if (scannedTracks.length === 0) {
+      setImportNotification({
+        show: true,
+        message: 'Pemindaian Penyimpanan Selesai',
+        details:
+          'Gunakan tombol "Pilih File Lagu" atau pastikan izin akses audio Android telah diberikan.',
+      });
+      setTimeout(() => setImportNotification(null), 4500);
+      return;
+    }
+
+    const existingIds = new Set(tracks.map((t) => t.id));
+    const newDeviceTracks = scannedTracks.filter((t) => !existingIds.has(t.id));
+
+    if (newDeviceTracks.length > 0) {
+      await saveTracksBatch(newDeviceTracks);
+      setTracks((prev) => [...newDeviceTracks, ...prev]);
+    }
+
+    setImportNotification({
+      show: true,
+      message: `${newDeviceTracks.length} Lagu HP Terdeteksi (Tanpa Copy)!`,
+      details: `Total ${scannedTracks.length} lagu terhubung langsung dari penyimpanan internal Android.`,
+    });
+    setTimeout(() => setImportNotification(null), 5000);
+  }, [tracks]);
 
   // Update Track Lyrics Permanently in DB & Active States
   const handleUpdateTrackLyrics = async (trackId: string, newLyrics: string) => {
@@ -871,6 +915,7 @@ export default function App() {
 
   // Delete Track from Library, Queues, and All Playlists
   const handleDeleteTrack = async (trackId: string) => {
+    unregisterTrackFile(trackId);
     await deleteTrackDB(trackId);
     setTracks((prev) => prev.filter((t) => t.id !== trackId));
     setOriginalQueue((prev) => prev.filter((t) => t.id !== trackId));
@@ -948,11 +993,23 @@ export default function App() {
         onEnded={handleEnded}
         onPlay={() => {
           setIsPlaying(true);
-          updateMediaSessionPlaybackState(true);
+          syncMediaPlaybackState(
+            currentTrack,
+            true,
+            audioRef.current?.currentTime || 0,
+            audioRef.current?.duration || currentTrack?.duration || 0,
+            true
+          );
         }}
         onPause={() => {
           setIsPlaying(false);
-          updateMediaSessionPlaybackState(false);
+          syncMediaPlaybackState(
+            currentTrack,
+            false,
+            audioRef.current?.currentTime || 0,
+            audioRef.current?.duration || currentTrack?.duration || 0,
+            true
+          );
         }}
         preload="auto"
         className="fixed -top-[9999px] -left-[9999px] w-1 h-1 opacity-0 pointer-events-none"
@@ -963,11 +1020,10 @@ export default function App() {
         id="playlish-app-container"
         className="w-full max-w-lg h-full max-h-[100dvh] bg-[#050505] bg-immersive-radial border-x border-white/5 shadow-2xl flex flex-col relative overflow-hidden select-none"
       >
-        {/* Android Top Status Bar */}
+        {/* Android Top Header & Quick Status Bar */}
         <AndroidStatusBar
           sleepTimer={sleepTimer}
           settings={settings}
-          isOffline={true}
           onOpenTimer={() => setIsSleepTimerModalOpen(true)}
           onOpenSettings={() => setActiveTab('settings')}
         />
@@ -993,6 +1049,7 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
               onAddTrackToPlaylist={handleAddTrackToPlaylist}
               onImportFiles={handleImportFiles}
+              onScanDeviceMusic={handleScanDeviceMusic}
               onDeleteTrack={handleDeleteTrack}
               onOpenLyricEditor={(targetTrack) => setEditingLyricTrack(targetTrack)}
             />
@@ -1028,20 +1085,6 @@ export default function App() {
               settings={settings}
               onUpdateSettings={handleUpdateSettings}
               isPlaying={isPlaying}
-            />
-          )}
-
-          {activeTab === 'offline' && (
-            <OfflineView
-              tracks={tracks}
-              currentTrackId={currentTrack?.id}
-              isPlaying={isPlaying}
-              offlineOnly={settings.offlineOnly}
-              onToggleOfflineOnly={(en) => handleUpdateSettings({ offlineOnly: en })}
-              onPlayTrack={(track, queueTracks) =>
-                handlePlayTrack(track, queueTracks, { type: 'offline', title: 'Mode Offline' })
-              }
-              onDeleteTrack={handleDeleteTrack}
             />
           )}
 

@@ -326,26 +326,26 @@ export function SettingsView({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
             <Radio className="w-4 h-4 text-[#F27D26]" />
-            Media Kontrol & Layar Kunci HP
+            Media Kontrol & Notifikasi Android Native
           </div>
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            MediaSession Aktif
+            Native MediaSession v2.0
           </span>
         </div>
 
         <p className="text-xs text-white/70 leading-relaxed">
-          PlayLish terintegrasi dengan <span className="text-[#F27D26] font-semibold">Pusat Kontrol (Notification Drawer)</span> Android/iOS, Layar Kunci (<span className="text-white font-medium">Lockscreen</span>), dan tombol media headset/Bluetooth.
+          Sistem kontrol media telah dibangun ulang dengan <span className="text-[#F27D26] font-semibold">PlayLishMediaService (Android ForegroundService &amp; MediaStyle Notification)</span> serta <span className="text-emerald-400 font-semibold">PARTIAL_WAKE_LOCK</span> agar kontrol lagu selalu muncul di panel notifikasi Android, layar kunci, serta tidak pernah keluar/crash meskipun berjalan berjam-jam.
         </p>
 
         <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-2 text-[11px]">
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span><strong>Memperbarui Logo di Tampilan HP:</strong> Hapus pintasan lama di Layar Utama HP Anda, lalu buka browser dan ketuk <em>"Tambahkan ke Layar Utama" (Add to Home Screen)</em> agar ikon piringan hitam dengan tombol play oranye langsung terpasang.</span>
+            <span><strong>Zero-Copy Direct Stream:</strong> Lagu MP3/FLAC diputar langsung dari memori HP tanpa disalin ke database aplikasi (0 MB duplikasi penyimpanan).</span>
           </div>
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-[#F27D26] shrink-0 mt-0.5" />
-            <span><strong>Koneksi Kontrol Bawaan:</strong> Kontrol media sistem beroperasi saat lagu diputar di browser langsung atau aplikasi terpasang di HP (bukan dalam jendela preview editor).</span>
+            <span><strong>Proteksi Latar Belakang Non-Stop:</strong> Dilengkapi WakeLock &amp; WebView Timer Keep-Alive untuk mencegah sistem Android menutup paksa aplikasi setelah pemakaian di atas 1 jam.</span>
           </div>
         </div>
       </div>
@@ -413,8 +413,8 @@ export function SettingsView({
             <span className="text-white font-semibold mt-0.5 block">Web Audio API Pipeline</span>
           </div>
           <div className="p-2.5 rounded-2xl bg-black/30 border border-white/5">
-            <span className="text-[10px] text-white/40 uppercase font-mono block">Penyimpanan</span>
-            <span className="text-emerald-400 font-semibold mt-0.5 block">IndexedDB Offline Ready</span>
+            <span className="text-[10px] text-white/40 uppercase font-mono block">Sistem Baca File</span>
+            <span className="text-emerald-400 font-semibold mt-0.5 block">Zero-Copy Direct Stream</span>
           </div>
         </div>
       </div>

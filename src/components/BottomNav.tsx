@@ -1,4 +1,4 @@
-import { Music, ListMusic, Sliders, HardDriveDownload, Settings } from 'lucide-react';
+import { Music, ListMusic, Sliders, Settings } from 'lucide-react';
 import { ActiveTab } from '../types';
 
 interface BottomNavProps {
@@ -17,14 +17,13 @@ export function BottomNav({ activeTab, onSelectTab, playlistCount }: BottomNavPr
       badge: playlistCount > 0 ? playlistCount : undefined,
     },
     { id: 'equalizer' as ActiveTab, label: 'Equalizer', icon: Sliders },
-    { id: 'offline' as ActiveTab, label: 'Offline', icon: HardDriveDownload },
     { id: 'settings' as ActiveTab, label: 'Setelan', icon: Settings },
   ];
 
   return (
     <nav
       id="android-bottom-nav"
-      className="w-full bg-[#0A0A0A]/95 backdrop-blur-2xl border-t border-white/10 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] flex items-center justify-around z-40 shrink-0"
+      className="w-full bg-[#0A0A0A]/95 backdrop-blur-2xl border-t border-white/10 px-2 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] grid grid-cols-4 gap-1 z-40 shrink-0"
     >
       {navItems.map((item) => {
         const Icon = item.icon;
@@ -35,15 +34,15 @@ export function BottomNav({ activeTab, onSelectTab, playlistCount }: BottomNavPr
             key={item.id}
             id={`nav-btn-${item.id}`}
             onClick={() => onSelectTab(item.id)}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all duration-200 cursor-pointer relative ${
+            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all duration-200 cursor-pointer relative active:scale-95 ${
               isActive
-                ? 'text-[#F27D26] font-semibold'
-                : 'text-white/40 hover:text-white/80'
+                ? 'text-[#F27D26] font-bold bg-[#F27D26]/10'
+                : 'text-white/45 hover:text-white/85 hover:bg-white/[0.03]'
             }`}
           >
             {/* Active Glow Pill */}
             {isActive && (
-              <div className="absolute -top-1 w-8 h-0.5 bg-[#F27D26] rounded-full shadow-[0_0_10px_#F27D26]" />
+              <div className="absolute top-0 w-7 h-0.5 bg-[#F27D26] rounded-full shadow-[0_0_10px_#F27D26]" />
             )}
 
             <div className="relative">
@@ -58,7 +57,7 @@ export function BottomNav({ activeTab, onSelectTab, playlistCount }: BottomNavPr
                 </span>
               )}
             </div>
-            <span className="text-[10px] mt-1 tracking-tight">{item.label}</span>
+            <span className="text-[11px] mt-1 tracking-tight">{item.label}</span>
           </button>
         );
       })}

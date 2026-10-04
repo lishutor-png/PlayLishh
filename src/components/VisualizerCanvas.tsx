@@ -22,31 +22,51 @@ export function VisualizerCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let animationId: number;
+    let animationId: number | null = null;
     const bufferLength = audioEngine.getFrequencyBinCount();
     const dataArray = new Uint8Array(bufferLength);
 
+    // Pre-create a single reusable vertical gradient to prevent allocating 2,160 native objects/sec
+    const cachedGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    cachedGradient.addColorStop(0, color);
+    cachedGradient.addColorStop(1, 'rgba(242, 125, 38, 0.12)');
+
+    const drawStaticIdleBars = () => {
+      const width = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, width, h);
+      const barCount = 36;
+      const barWidth = (width / barCount) * 0.65;
+      ctx.fillStyle = cachedGradient;
+      for (let i = 0; i < barCount; i++) {
+        const x = i * (width / barCount) + (width / barCount - barWidth) / 2;
+        ctx.fillRect(x, h - 4, barWidth, 4);
+      }
+    };
+
     const render = () => {
+      // Stop rendering immediately if paused or screen is off / app in background
+      if (!isPlaying || document.hidden) {
+        animationId = null;
+        if (!isPlaying) {
+          drawStaticIdleBars();
+        }
+        return;
+      }
+
       animationId = requestAnimationFrame(render);
 
       const width = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, width, h);
 
-      if (isPlaying) {
-        audioEngine.getAnalyserData(dataArray);
-      } else {
-        // Idle gentle animation
-        for (let i = 0; i < bufferLength; i++) {
-          dataArray[i] = Math.max(0, dataArray[i] * 0.92);
-        }
-      }
-
       if (mode === 'bars') {
+        audioEngine.getAnalyserData(dataArray);
         const barCount = 36;
         const barWidth = (width / barCount) * 0.65;
         const step = Math.floor(bufferLength / barCount);
 
+        ctx.fillStyle = cachedGradient;
         for (let i = 0; i < barCount; i++) {
           const value = dataArray[i * step] || 0;
           const percent = value / 255;
@@ -54,30 +74,18 @@ export function VisualizerCanvas({
           const x = i * (width / barCount) + (width / barCount - barWidth) / 2;
           const y = h - barHeight;
 
-          // Gradient
-          const gradient = ctx.createLinearGradient(0, y, 0, h);
-          gradient.addColorStop(0, color);
-          gradient.addColorStop(1, 'rgba(242, 125, 38, 0.12)');
+          ctx.fillRect(x, y, barWidth, barHeight);
 
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.roundRect(x, y, barWidth, barHeight, [3, 3, 0, 0]);
-          ctx.fill();
-
-          // Top peak dot
-          if (percent > 0.1) {
+          if (percent > 0.12) {
             ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(x + barWidth / 2, Math.max(2, y - 3), 1.5, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillRect(x, Math.max(1, y - 3), barWidth, 2);
+            ctx.fillStyle = cachedGradient;
           }
         }
       } else if (mode === 'wave') {
         audioEngine.getWaveformData(dataArray);
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
         ctx.beginPath();
 
         const sliceWidth = width / bufferLength;
@@ -98,14 +106,33 @@ export function VisualizerCanvas({
 
         ctx.lineTo(width, h / 2);
         ctx.stroke();
-        ctx.shadowBlur = 0;
       }
     };
 
-    render();
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (animationId !== null) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+      } else if (isPlaying && animationId === null) {
+        render();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    if (isPlaying && !document.hidden) {
+      render();
+    } else {
+      drawStaticIdleBars();
+    }
 
     return () => {
-      cancelAnimationFrame(animationId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
     };
   }, [isPlaying, color, mode]);
 
