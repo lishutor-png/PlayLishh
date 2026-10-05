@@ -11,21 +11,14 @@ const inMemoryFileMap = new Map<string, File | Blob>();
 const inMemoryHandleMap = new Map<string, any>();
 let activeObjectUrl: string | null = null;
 let activeObjectTrackId: string | null = null;
+// Pin the currently playing File/Blob strongly in memory so V8 Garbage Collector NEVER collects it mid-playback
+let activeBlobRef: File | Blob | null = null;
 
 /**
  * Register a direct File/Blob reference or FileSystemFileHandle.
- * Uses Single-Buffer RAM Guard: only holds active track in RAM once persisted to IndexedDB.
  */
 export function registerTrackFile(trackId: string, file?: File | Blob, handle?: any): void {
   if (file) {
-    // Single-Buffer RAM Guard: evict non-active blobs if map exceeds 2 entries
-    if (inMemoryFileMap.size >= 2 && !inMemoryFileMap.has(trackId)) {
-      for (const existingKey of inMemoryFileMap.keys()) {
-        if (existingKey !== activeObjectTrackId && existingKey !== trackId) {
-          inMemoryFileMap.delete(existingKey);
-        }
-      }
-    }
     inMemoryFileMap.set(trackId, file);
   }
   if (handle) {
@@ -34,15 +27,10 @@ export function registerTrackFile(trackId: string, file?: File | Blob, handle?: 
 }
 
 /**
- * Releases all inactive File/Blob references from RAM once they are safely persisted in IndexedDB.
- * Guarantees 0 MB RAM growth even after 10+ hours of playback.
+ * Keep active File handles intact so OS file descriptors never close mid-stream.
  */
-export function releaseInactiveMemoryBlobs(activeTrackId?: string): void {
-  for (const key of Array.from(inMemoryFileMap.keys())) {
-    if (key !== activeTrackId && key !== activeObjectTrackId) {
-      inMemoryFileMap.delete(key);
-    }
-  }
+export function releaseInactiveMemoryBlobs(_activeTrackId?: string): void {
+  // Intentionally keep File handles in inMemoryFileMap so live streams never get garbage-collected
 }
 
 /**
@@ -80,14 +68,14 @@ export function hasDirectAudioAccess(track: AudioTrack): boolean {
 export async function getTrackAudioFile(track: AudioTrack): Promise<File | Blob | null> {
   // 1. Check fast in-memory session cache
   const memFile = inMemoryFileMap.get(track.id);
-  if (memFile) return memFile;
+  if (memFile && memFile.size > 0) return memFile;
 
   // 2. Check FileSystemFileHandle if available
   const handle = inMemoryHandleMap.get(track.id);
   if (handle && typeof handle.getFile === 'function') {
     try {
       const file = await handle.getFile();
-      if (file) {
+      if (file && file.size > 0) {
         registerTrackFile(track.id, file);
         return file;
       }
@@ -122,11 +110,19 @@ export async function resolveDirectStreamUrl(
   // 1. Primary: Load from in-memory File or persistent IndexedDB audioBlobs
   const fileOrBlob = await getTrackAudioFile(track);
   if (fileOrBlob) {
-    revokeActiveObjectUrl();
+    const previousUrl = activeObjectUrl;
+    // Pin activeBlobRef strongly so V8 GC never collects the backing Blob while playing
+    activeBlobRef = fileOrBlob;
     activeObjectUrl = URL.createObjectURL(fileOrBlob);
     activeObjectTrackId = track.id;
-    // Evict any previous track's Blob from RAM so only the 1 currently playing track uses RAM
-    releaseInactiveMemoryBlobs(track.id);
+
+    if (previousUrl && previousUrl !== activeObjectUrl) {
+      try {
+        URL.revokeObjectURL(previousUrl);
+      } catch {
+        // ignore
+      }
+    }
     return activeObjectUrl;
   }
 
@@ -165,6 +161,7 @@ export async function resolveDirectStreamUrl(
  */
 export function revokeActiveObjectUrl(): void {
   activeObjectTrackId = null;
+  activeBlobRef = null;
   if (activeObjectUrl) {
     const urlToRevoke = activeObjectUrl;
     activeObjectUrl = null;

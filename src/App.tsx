@@ -289,14 +289,7 @@ export default function App() {
       if (!audioRef.current) return;
 
       try {
-        // Explicitly flush previous C++ audio decoder buffer before revoking old ObjectURL to prevent >1 hour RAM accumulation
         const el = audioRef.current;
-        if (forceRefresh || (el.src && el.src !== '')) {
-          el.pause();
-          el.removeAttribute('src');
-          el.load();
-        }
-
         const src = await resolveDirectStreamUrl(track, forceRefresh);
         if (!src) {
           console.warn('No audio stream found in DB for track:', track.title);
@@ -313,17 +306,19 @@ export default function App() {
           return;
         }
 
-        el.src = src;
-        el.load();
-        lastTimeUpdateRef.current = 0;
-        setCurrentTime(0);
+        if (el.src !== src || forceRefresh) {
+          el.src = src;
+          el.load();
+          lastTimeUpdateRef.current = 0;
+          setCurrentTime(0);
+        }
 
         if (autoPlay) {
           audioEngine.ensureContextRunning();
           try {
             await el.play();
             setIsPlaying(true);
-            publishMediaTrackMetadata(track, true, 0, track.duration);
+            publishMediaTrackMetadata(track, true, el.currentTime || 0, el.duration || track.duration);
           } catch (err) {
             console.warn('AutoPlay delayed, attaching canplay listener:', err);
             const onCanPlay = async () => {
@@ -331,7 +326,7 @@ export default function App() {
               try {
                 await el.play();
                 setIsPlaying(true);
-                publishMediaTrackMetadata(track, true, 0, el.duration || track.duration);
+                publishMediaTrackMetadata(track, true, el.currentTime || 0, el.duration || track.duration);
               } catch (e2) {
                 console.warn('Playback on canplay retry error:', e2);
               }
@@ -387,6 +382,7 @@ export default function App() {
   // Update track when user plays a track
   const handlePlayTrack = useCallback(
     async (track: AudioTrack, sourceTracks?: AudioTrack[], source?: PlaybackSource) => {
+      audioEngine.ensureContextRunning();
       const tracksToQueue = sourceTracks && sourceTracks.length > 0 ? sourceTracks : tracks;
       setOriginalQueue(tracksToQueue);
 
@@ -414,6 +410,7 @@ export default function App() {
   const handleShufflePlayAll = useCallback(
     async (sourceTracks: AudioTrack[], source?: PlaybackSource) => {
       if (sourceTracks.length === 0) return;
+      audioEngine.ensureContextRunning();
       const newSource = source || { type: 'all', title: 'Semua Lagu' };
       setPlaybackSource(newSource);
       setOriginalQueue(sourceTracks);
@@ -642,15 +639,15 @@ export default function App() {
     };
   }, [handlePlay, handlePause, handlePrevTrack, handleNextTrack, handleSeek, isPlaying]);
 
-  // Publish track metadata when active track changes
+  // Publish track metadata only when active track ID changes (prevents metadata duration update from resetting playback state)
   useEffect(() => {
     publishMediaTrackMetadata(
       currentTrack,
-      isPlaying,
+      audioRef.current ? !audioRef.current.paused : isPlaying,
       audioRef.current?.currentTime || 0,
       duration || currentTrack?.duration || 0
     );
-  }, [currentTrack]);
+  }, [currentTrack?.id]);
 
   // Toggle favorite
   const handleToggleFavorite = async (trackId: string) => {
@@ -899,9 +896,18 @@ export default function App() {
           colorHex: '#F27D26',
         };
 
-        // Hold File pointer in memory AND persist binary in IndexedDB audioBlobs so it survives app exit!
-        registerTrackFile(trackId, file);
-        batchToSave.push({ track: trackObj, audioBlob: file });
+        // Convert File into a self-contained Blob so Android WebView / IndexedDB never loses the file stream after 1 second or app restart!
+        let persistentBlob: Blob = file;
+        try {
+          const arrayBuf = await file.arrayBuffer();
+          persistentBlob = new Blob([arrayBuf], { type: file.type || 'audio/mpeg' });
+        } catch {
+          persistentBlob = file;
+        }
+
+        // Hold Blob pointer in memory AND persist binary in IndexedDB audioBlobs so it survives app exit!
+        registerTrackFile(trackId, persistentBlob);
+        batchToSave.push({ track: trackObj, audioBlob: persistentBlob });
 
         if (existingMatch) {
           updatedExistingTracks.push(trackObj);
