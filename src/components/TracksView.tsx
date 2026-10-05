@@ -244,7 +244,7 @@ export function TracksView({
             <span>Daftar Lagu ({tracks.length})</span>
           </h2>
           <p className="text-[11px] text-white/50 truncate">
-            Putar langsung dari memori perangkat tanpa salin file (Zero-Copy)
+            Tersimpan permanen di aplikasi — langsung siap diputar tanpa perlu dimuat ulang
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -316,19 +316,44 @@ export function TracksView({
       {/* Tracks List */}
       <div className="space-y-2">
         {filteredTracks.length === 0 ? (
-          <div className="text-center py-12 px-4 bg-white/[0.02] border border-white/10 rounded-3xl backdrop-blur-xl space-y-3">
+          <div className="text-center py-10 px-5 bg-white/[0.02] border border-white/10 rounded-3xl backdrop-blur-xl space-y-4">
             <AppLogo size="md" variant="icon-only" className="mx-auto" />
-            <p className="text-sm font-bold text-white/90">Tidak ada lagu ditemukan</p>
-            <p className="text-xs text-white/40 max-w-xs mx-auto">
-              Klik tombol &quot;Impor Audio&quot; untuk menambahkan file FLAC, WAV, MP3, atau AAC dari perangkat Anda.
-            </p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95"
-            >
-              <Upload className="w-4 h-4" />
-              Impor File Audio
-            </button>
+            <div className="space-y-1">
+              <p className="text-sm font-bold text-white/95">
+                {tracks.length === 0 ? 'Belum Ada Lagu di Daftar Putar' : 'Tidak Ada Lagu yang Cocok'}
+              </p>
+              <p className="text-xs text-white/50 max-w-xs mx-auto leading-relaxed">
+                {tracks.length === 0
+                  ? 'Pilih lagu MP3, FLAC, WAV, atau folder musik Anda. Lagu akan tersimpan permanen dan siap diputar kapan saja tanpa perlu dimuat ulang.'
+                  : 'Coba ubah kata kunci pencarian atau pilih tab format audio lainnya.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F27D26] hover:bg-[#ff8a3d] text-white font-bold text-xs shadow-lg shadow-[#F27D26]/25 cursor-pointer transition-all active:scale-95"
+              >
+                <Upload className="w-4 h-4" />
+                Pilih Lagu & .LRC
+              </button>
+              {isAndroid && onScanDeviceMusic ? (
+                <button
+                  onClick={() => onScanDeviceMusic()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer transition-all active:scale-95"
+                >
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  Pindai Musik HP
+                </button>
+              ) : (
+                <button
+                  onClick={() => folderInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 cursor-pointer transition-all active:scale-95"
+                >
+                  <FolderOpen className="w-4 h-4 text-amber-400" />
+                  Buka Folder Musik
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           filteredTracks.map((track) => {

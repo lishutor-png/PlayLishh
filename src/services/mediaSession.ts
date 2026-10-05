@@ -24,7 +24,10 @@ interface PlayLishNativeBridge {
   ) => void;
   stopMediaSession: () => void;
   scanDeviceAudio?: () => string;
+  findAudioUriByName?: (fileName: string, title: string) => string;
   requestStoragePermission?: () => void;
+  requestUnrestrictedBattery?: () => void;
+  isIgnoringBatteryOptimizations?: () => boolean;
 }
 
 declare global {
@@ -39,6 +42,62 @@ let isInitialized = false;
 let lastPositionSyncTime = 0;
 let lastSyncedTrackId: string | null = null;
 let lastSyncedIsPlaying: boolean | null = null;
+
+// Web Locks API Keep-Alive: Prevents Chromium / Android WebView from freezing page after 1 hour in background
+let activeWebLockRelease: (() => void) | null = null;
+
+function setWebPlaybackLock(active: boolean): void {
+  if (typeof navigator === 'undefined' || !('locks' in navigator) || !navigator.locks) {
+    return;
+  }
+
+  if (active) {
+    if (activeWebLockRelease) return; // Already holding lock
+    try {
+      navigator.locks
+        .request('playlish_active_audio_playback', { mode: 'exclusive' }, () => {
+          return new Promise<void>((resolve) => {
+            activeWebLockRelease = () => {
+              activeWebLockRelease = null;
+              resolve();
+            };
+          });
+        })
+        .catch(() => {
+          activeWebLockRelease = null;
+        });
+    } catch {
+      // ignore
+    }
+  } else {
+    if (activeWebLockRelease) {
+      const release = activeWebLockRelease;
+      activeWebLockRelease = null;
+      release();
+    }
+  }
+}
+
+export function isAndroidBatteryUnrestricted(): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.PlayLishNativeBridge?.isIgnoringBatteryOptimizations) {
+      return Boolean(window.PlayLishNativeBridge.isIgnoringBatteryOptimizations());
+    }
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+export function requestAndroidUnrestrictedBattery(): void {
+  try {
+    if (typeof window !== 'undefined' && window.PlayLishNativeBridge?.requestUnrestrictedBattery) {
+      window.PlayLishNativeBridge.requestUnrestrictedBattery();
+    }
+  } catch {
+    // ignore
+  }
+}
 
 /**
  * Registers MediaSession handlers once for both Web MediaSession API and
@@ -144,6 +203,7 @@ export function publishMediaTrackMetadata(
   if (typeof window === 'undefined') return;
 
   if (!track) {
+    setWebPlaybackLock(false);
     if ('mediaSession' in navigator) {
       try {
         navigator.mediaSession.metadata = null;
@@ -160,6 +220,8 @@ export function publishMediaTrackMetadata(
     lastSyncedTrackId = null;
     return;
   }
+
+  setWebPlaybackLock(isPlaying);
 
   const title = track.title || 'PlayLish Audio';
   const artist = track.artist || 'PlayLish Hi-Res';
@@ -243,6 +305,7 @@ export function syncMediaPlaybackState(
 
   if (!shouldSyncPosition) return;
 
+  setWebPlaybackLock(isPlaying);
   lastPositionSyncTime = now;
   lastSyncedIsPlaying = isPlaying;
 

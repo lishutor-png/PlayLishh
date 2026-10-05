@@ -13,6 +13,7 @@ import {
   getAllTracks,
   saveTrack,
   saveTracksBatch,
+  TrackWithBlobItem,
   purgeLegacyCopiedBlobs,
   clearAllTracks,
   updateTrackLyrics,
@@ -30,6 +31,7 @@ import {
   registerTrackFile,
   unregisterTrackFile,
   clearAllTrackFiles,
+  releaseInactiveMemoryBlobs,
   resolveDirectStreamUrl,
   pairAudioAndLrcFiles,
   normalizeSongBaseName,
@@ -135,11 +137,16 @@ export default function App() {
   const lastPrevClickRef = useRef<number>(0);
   const lastTimeUpdateRef = useRef<number>(0);
 
-  // Initialize DB, purge legacy copied blobs, & restore persisted settings
+  // Initialize DB, request durable storage, & restore persisted tracks + settings
   useEffect(() => {
     async function initData() {
       try {
-        // Free up phone storage/RAM from any legacy copied audio blobs & built-in demo tracks
+        // Request persistent storage so OS/browser never evicts IndexedDB audioBlobs when exiting app
+        if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().catch(() => {});
+        }
+
+        // Remove only legacy built-in demo tracks (keeps all user-imported audioBlobs intact!)
         await purgeLegacyCopiedBlobs();
 
         const savedTracks = await getAllTracks();
@@ -181,6 +188,7 @@ export default function App() {
             (lastTrackId && savedTracks.find((t) => t.id === lastTrackId)) || savedTracks[0];
 
           setCurrentTrack(restoredTrack);
+          setDuration(restoredTrack.duration || 0);
           setOriginalQueue(savedTracks);
 
           const activeShuffle =
@@ -192,6 +200,13 @@ export default function App() {
             setQueue(generateShuffledQueue(savedTracks, restoredTrack));
           } else {
             setQueue(savedTracks);
+          }
+
+          // Pre-load the restored track's audio stream from IndexedDB so pressing Play works immediately on reopen!
+          const initialStreamUrl = await resolveDirectStreamUrl(restoredTrack);
+          if (initialStreamUrl && audioRef.current) {
+            audioRef.current.src = initialStreamUrl;
+            audioRef.current.load();
           }
         }
       } catch (err) {
@@ -268,32 +283,49 @@ export default function App() {
     return () => clearInterval(interval);
   }, [sleepTimer.active, sleepTimer.targetEndTime, sleepTimer.autoFade]);
 
-  // Load track audio source into HTMLAudioElement via Zero-Copy Direct Stream
-  const loadTrackSource = useCallback(async (track: AudioTrack, autoPlay: boolean = false) => {
-    if (!audioRef.current) return;
+  // Load track audio source into HTMLAudioElement from Memory, IndexedDB audioBlobs, or Android MediaStore
+  const loadTrackSource = useCallback(
+    async (track: AudioTrack, autoPlay: boolean = false, forceRefresh: boolean = false) => {
+      if (!audioRef.current) return;
 
-    try {
-      const src = await resolveDirectStreamUrl(track);
-      if (!src) {
-        console.warn('No direct audio stream available for track:', track.title);
-        return;
-      }
+      try {
+        // Explicitly flush previous C++ audio decoder buffer before revoking old ObjectURL to prevent >1 hour RAM accumulation
+        const el = audioRef.current;
+        if (forceRefresh || (el.src && el.src !== '')) {
+          el.pause();
+          el.removeAttribute('src');
+          el.load();
+        }
 
-      audioRef.current.src = src;
-      audioRef.current.load();
-      lastTimeUpdateRef.current = 0;
-      setCurrentTime(0);
+        const src = await resolveDirectStreamUrl(track, forceRefresh);
+        if (!src) {
+          console.warn('No audio stream found in DB for track:', track.title);
+          if (autoPlay) {
+            setImportNotification({
+              show: true,
+              message: `Memulihkan File Audio "${track.title}"`,
+              details:
+                'Pilih kembali file lagu ini satu kali agar tersimpan permanen di database aplikasi.',
+            });
+            setTimeout(() => setImportNotification(null), 5000);
+            document.getElementById('btn-import-hero')?.click();
+          }
+          return;
+        }
 
-      if (autoPlay) {
-        audioEngine.ensureContextRunning();
-        try {
-          await audioRef.current.play();
-          setIsPlaying(true);
-          publishMediaTrackMetadata(track, true, 0, track.duration);
-        } catch (err) {
-          console.warn('AutoPlay delayed, attaching canplay listener:', err);
-          const el = audioRef.current;
-          if (el) {
+        el.src = src;
+        el.load();
+        lastTimeUpdateRef.current = 0;
+        setCurrentTime(0);
+
+        if (autoPlay) {
+          audioEngine.ensureContextRunning();
+          try {
+            await el.play();
+            setIsPlaying(true);
+            publishMediaTrackMetadata(track, true, 0, track.duration);
+          } catch (err) {
+            console.warn('AutoPlay delayed, attaching canplay listener:', err);
             const onCanPlay = async () => {
               el.removeEventListener('canplay', onCanPlay);
               try {
@@ -306,14 +338,41 @@ export default function App() {
             };
             el.addEventListener('canplay', onCanPlay, { once: true });
           }
+        } else {
+          publishMediaTrackMetadata(track, false, 0, track.duration);
         }
-      } else {
-        publishMediaTrackMetadata(track, false, 0, track.duration);
+      } catch (err) {
+        console.error('Failed to load audio source:', err);
       }
-    } catch (err) {
-      console.error('Failed to load audio source:', err);
-    }
-  }, []);
+    },
+    []
+  );
+
+  // Automatically recover audio context & stream URL when returning to the app after minimizing/exiting
+  useEffect(() => {
+    const handleVisibilityOrResume = () => {
+      if (document.visibilityState === 'visible') {
+        if (isPlaying) {
+          audioEngine.ensureContextRunning();
+        }
+        if (currentTrack && audioRef.current) {
+          const el = audioRef.current;
+          if (!el.src || el.src === '' || el.src === window.location.href || el.error) {
+            loadTrackSource(currentTrack, isPlaying, true);
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrResume);
+    window.addEventListener('pageshow', handleVisibilityOrResume);
+    window.addEventListener('focus', handleVisibilityOrResume);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrResume);
+      window.removeEventListener('pageshow', handleVisibilityOrResume);
+      window.removeEventListener('focus', handleVisibilityOrResume);
+    };
+  }, [currentTrack, isPlaying, loadTrackSource]);
 
   // Setting updates with immediate audio engine synchronization and persistent storage
   const handleUpdateSettings = useCallback((newSettings: Partial<AudioSettings>) => {
@@ -395,21 +454,29 @@ export default function App() {
     if (!audioRef.current || !currentTrack) return;
     audioEngine.ensureContextRunning();
 
-    if (!audioRef.current.src || audioRef.current.src === '') {
-      await loadTrackSource(currentTrack, true);
+    const el = audioRef.current;
+    const hasValidSrc =
+      Boolean(el.src) &&
+      el.src !== '' &&
+      el.src !== window.location.href &&
+      !el.error;
+
+    if (!hasValidSrc) {
+      await loadTrackSource(currentTrack, true, true);
     } else {
       try {
-        await audioRef.current.play();
+        await el.play();
         setIsPlaying(true);
         syncMediaPlaybackState(
           currentTrack,
           true,
-          audioRef.current.currentTime,
-          audioRef.current.duration || currentTrack.duration,
+          el.currentTime,
+          el.duration || currentTrack.duration,
           true
         );
       } catch (err) {
-        console.warn('Playback error:', err);
+        console.warn('Playback error on existing src, reloading fresh stream from DB:', err);
+        await loadTrackSource(currentTrack, true, true);
       }
     }
   }, [currentTrack, loadTrackSource]);
@@ -556,8 +623,24 @@ export default function App() {
       onNext: handleNextTrack,
       onSeek: handleSeek,
     });
-    return cleanup;
-  }, [handlePlay, handlePause, handlePrevTrack, handleNextTrack, handleSeek]);
+
+    // Listen to 25-second native Android Service heartbeat to keep AudioContext & queue progression alive >1 hour
+    const handleNativeHeartbeat = () => {
+      if (isPlaying) {
+        audioEngine.ensureContextRunning();
+        const el = audioRef.current;
+        if (el && el.ended) {
+          handleNextTrack();
+        }
+      }
+    };
+    window.addEventListener('playlish-heartbeat', handleNativeHeartbeat);
+
+    return () => {
+      cleanup();
+      window.removeEventListener('playlish-heartbeat', handleNativeHeartbeat);
+    };
+  }, [handlePlay, handlePause, handlePrevTrack, handleNextTrack, handleSeek, isPlaying]);
 
   // Publish track metadata when active track changes
   useEffect(() => {
@@ -727,8 +810,10 @@ export default function App() {
         return;
       }
 
-      // Case B: Zero-Copy Direct Linking of Audio Files (with automatic .LRC pairing)
+      // Case B: Persistent Audio File Import (Saves both metadata and audio Blob to IndexedDB so tracks always play after reopening app)
       const newLoadedTracks: AudioTrack[] = [];
+      const updatedExistingTracks: AudioTrack[] = [];
+      const batchToSave: TrackWithBlobItem[] = [];
       let autoLrcCount = 0;
       const nowBase = Date.now();
 
@@ -742,21 +827,38 @@ export default function App() {
         }
 
         const cleanName = file.name.replace(/\.[^/.]+$/, '');
-        const trackId = `track-${nowBase}-${i}-${Math.random().toString(36).slice(2, 6)}`;
 
-        // 1. Lightweight 256KB header slice metadata extraction (no full file copy!)
+        // Check if this song already exists in the library (so re-importing heals/updates it in-place without duplicates)
+        const normalizedClean = normalizeSongBaseName(file.name);
+        const existingMatch = tracks.find(
+          (t) =>
+            (t.fileName && t.fileName.toLowerCase() === file.name.toLowerCase()) ||
+            normalizeSongBaseName(t.title) === normalizedClean
+        );
+
+        const trackId = existingMatch
+          ? existingMatch.id
+          : `track-${nowBase}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+
+        // 1. Lightweight 256KB header slice metadata extraction
         const meta = await extractAudioMetadata(file);
 
         // 2. Estimate duration from file size & format bitrate (exact duration updates automatically on play)
-        const estimatedDuration = Math.max(
-          30,
-          Math.min(1200, Math.round(file.size / (format === 'FLAC' || format === 'WAV' ? 176000 : 32000)))
-        );
+        const estimatedDuration =
+          existingMatch && existingMatch.duration > 0
+            ? existingMatch.duration
+            : Math.max(
+                30,
+                Math.min(
+                  1200,
+                  Math.round(file.size / (format === 'FLAC' || format === 'WAV' ? 176000 : 32000))
+                )
+              );
 
         // 3. Read matching .LRC file if found alongside the audio
-        let lyricsText = meta.lyrics;
-        let hasMatchedLrc = false;
-        let lrcFileName: string | undefined = undefined;
+        let lyricsText = meta.lyrics || existingMatch?.lyrics;
+        let hasMatchedLrc = Boolean(existingMatch?.hasMatchedLrc);
+        let lrcFileName: string | undefined = existingMatch?.lrcFileName;
 
         if (pair.lrcFile) {
           try {
@@ -773,13 +875,13 @@ export default function App() {
           autoLrcCount++;
         }
 
-        const newTrack: AudioTrack = {
+        const trackObj: AudioTrack = {
           id: trackId,
-          title: meta.title || cleanName,
-          artist: meta.artist || 'Lokal Audio',
-          album: meta.album || 'Koleksi Lokal',
+          title: meta.title || existingMatch?.title || cleanName,
+          artist: meta.artist || existingMatch?.artist || 'Lokal Audio',
+          album: meta.album || existingMatch?.album || 'Koleksi Lokal',
           duration: estimatedDuration,
-          coverUrl: meta.coverUrl,
+          coverUrl: meta.coverUrl || existingMatch?.coverUrl,
           lyrics: lyricsText,
           format,
           sampleRate: format === 'FLAC' ? 96000 : format === 'WAV' ? 48000 : 44100,
@@ -791,25 +893,38 @@ export default function App() {
           hasMatchedLrc,
           lrcFileName,
           isOffline: true,
-          isFavorite: false,
-          genre: meta.genre || 'Direct Stream',
-          addedAt: nowBase - i,
+          isFavorite: existingMatch ? existingMatch.isFavorite : false,
+          genre: meta.genre || existingMatch?.genre || 'Koleksi Musik',
+          addedAt: existingMatch ? existingMatch.addedAt : nowBase - i,
           colorHex: '#F27D26',
         };
 
-        // Hold OS File pointer in memory for zero-copy direct streaming (0 bytes copied to DB)
+        // Hold File pointer in memory AND persist binary in IndexedDB audioBlobs so it survives app exit!
         registerTrackFile(trackId, file);
-        newLoadedTracks.push(newTrack);
+        batchToSave.push({ track: trackObj, audioBlob: file });
+
+        if (existingMatch) {
+          updatedExistingTracks.push(trackObj);
+        } else {
+          newLoadedTracks.push(trackObj);
+        }
       }
 
-      // Persist lightweight metadata in a single fast transaction (no audio blobs copied!)
-      await saveTracksBatch(newLoadedTracks);
+      // Persist both track metadata and audio Blobs into IndexedDB in a single transaction
+      await saveTracksBatch(batchToSave);
+      // Free all non-playing File pointers from RAM now that they are safely persisted in IndexedDB
+      releaseInactiveMemoryBlobs(currentTrack?.id);
 
       // 4. Handle orphan LRC files matching existing or newly loaded tracks
+      const combinedTracks = [
+        ...newLoadedTracks,
+        ...tracks.map((t) => updatedExistingTracks.find((u) => u.id === t.id) || t),
+      ];
+
       if (orphanLrcFiles.length > 0) {
         for (const lrcFile of orphanLrcFiles) {
           const lrcKey = normalizeSongBaseName(lrcFile.name);
-          const targetTrack = [...newLoadedTracks, ...tracks].find(
+          const targetTrack = combinedTracks.find(
             (t) =>
               normalizeSongBaseName(t.title) === lrcKey ||
               normalizeSongBaseName(t.fileName || '') === lrcKey
@@ -829,20 +944,32 @@ export default function App() {
         }
       }
 
-      setTracks((prev) => [...newLoadedTracks, ...prev]);
+      setTracks(combinedTracks);
+      setOriginalQueue(combinedTracks);
+      if (settings.shuffle) {
+        setQueue(generateShuffledQueue(combinedTracks, currentTrack || combinedTracks[0]));
+      } else {
+        setQueue(combinedTracks);
+      }
 
+      const totalProcessed = newLoadedTracks.length + updatedExistingTracks.length;
       setImportNotification({
         show: true,
-        message: `${newLoadedTracks.length} Lagu Ditautkan Langsung (Zero-Copy)!`,
+        message: `${totalProcessed} Lagu Berhasil Disimpan Permanen!`,
         details:
           autoLrcCount > 0
-            ? `${autoLrcCount} lirik (.LRC) terhubung otomatis tanpa menyalin file MP3 ke memori aplikasi.`
-            : 'Diputar langsung dari penyimpanan perangkat (0 MB duplikasi memori).',
+            ? `${autoLrcCount} lirik (.LRC) terhubung otomatis. Lagu siap diputar kapan saja meski aplikasi ditutup.`
+            : 'Lagu tersimpan di database aplikasi dan siap diputar kapan saja tanpa perlu dimuat ulang.',
       });
       setTimeout(() => setImportNotification(null), 5000);
 
-      if (newLoadedTracks.length > 0 && !currentTrack) {
-        handlePlayTrack(newLoadedTracks[0], [...newLoadedTracks, ...tracks]);
+      const trackToAutoPlay =
+        (currentTrack && updatedExistingTracks.find((u) => u.id === currentTrack.id)) ||
+        newLoadedTracks[0] ||
+        updatedExistingTracks[0];
+
+      if (trackToAutoPlay && (!currentTrack || updatedExistingTracks.some((u) => u.id === currentTrack.id))) {
+        handlePlayTrack(trackToAutoPlay, combinedTracks);
       }
     } catch (err) {
       console.error('Error linking files:', err);

@@ -74,11 +74,11 @@ export function ImportSongModal({
             </div>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">
-                Akses Lagu Langsung (Zero-Copy)
+                Tambah Lagu & Lirik (.LRC)
               </h3>
               <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
                 <Zap className="w-3 h-3" />
-                Tanpa Salin File • Hemat RAM & Memori HP
+                Tersimpan Permanen • Siap Diputar Tanpa Muat Ulang
               </p>
             </div>
           </div>
@@ -90,11 +90,11 @@ export function ImportSongModal({
           </button>
         </div>
 
-        {/* Zero-Copy Info Banner */}
+        {/* Info Banner */}
         <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-start gap-2.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <div className="text-[11px] text-white/80 leading-relaxed">
-            <strong className="text-emerald-300">Sistem Baru Direct-Stream:</strong> Lagu MP3/FLAC diputar langsung dari alamat berkas asli di perangkat Anda tanpa menyalin ulang ke dalam aplikasi.
+            <strong className="text-emerald-300">Penyimpanan Permanen Otomatis:</strong> Lagu yang Anda masukkan tetap tersimpan di database aplikasi dan langsung bisa dijalankan kembali kapan saja meskipun aplikasi ditutup atau keluar.
           </div>
         </div>
 
@@ -145,14 +145,14 @@ export function ImportSongModal({
               <div className="w-9 h-9 rounded-xl bg-[#F27D26]/20 text-[#F27D26] flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FileAudio className="w-4.5 h-4.5" />
               </div>
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">0 MB Copy</span>
+              <span className="text-[10px] font-mono text-emerald-400 font-bold">Permanen</span>
             </div>
             <div>
               <div className="text-xs font-bold text-white group-hover:text-[#F27D26] transition-colors">
                 Pilih File Lagu & .LRC
               </div>
               <p className="text-[11px] text-white/50 mt-0.5 leading-relaxed">
-                Tautkan file MP3, FLAC, WAV beserta lirik .lrc langsung dari memori.
+                Masukkan file MP3, FLAC, WAV beserta lirik .lrc agar tersimpan permanen di aplikasi.
               </p>
             </div>
           </button>
@@ -167,14 +167,14 @@ export function ImportSongModal({
               <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FolderOpen className="w-4.5 h-4.5" />
               </div>
-              <span className="text-[10px] font-mono text-amber-400 font-bold">Akses Folder</span>
+              <span className="text-[10px] font-mono text-amber-400 font-bold">Satu Folder</span>
             </div>
             <div>
               <div className="text-xs font-bold text-white group-hover:text-amber-400 transition-colors">
                 Buka Folder Musik
               </div>
               <p className="text-[11px] text-white/50 mt-0.5 leading-relaxed">
-                Baca daftar lagu satu folder penuh beserta file .lrc secara instan.
+                Muat seluruh lagu satu folder penuh beserta file .lrc secara otomatis.
               </p>
             </div>
           </button>
@@ -184,9 +184,9 @@ export function ImportSongModal({
         <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-[11px] text-white/50">
           <span className="flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-[#F27D26]" />
-            Otomatis sinkronisasi file lirik <code className="text-white/80 font-mono">.lrc</code>
+            Otomatis sinkronisasi lirik <code className="text-white/80 font-mono">.lrc</code> &amp; proteksi RAM Non-Stop
           </span>
-          <span className="font-mono text-[10px] text-emerald-400">Zero-Copy v2.0</span>
+          <span className="font-mono text-[10px] text-emerald-400">Anti-Stop &gt;1 Jam</span>
         </div>
 
         {/* Hidden Inputs */}

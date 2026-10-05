@@ -2,13 +2,16 @@ package com.playlish.musicplayer;
 
 import android.Manifest;
 import android.content.ContentUris;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -103,6 +106,38 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    @Override
+    public void onBackPressed() {
+        try {
+            // Keep app & WebView alive in background instead of destroying Activity when user presses Back to exit
+            moveTaskToBack(true);
+        } catch (Exception e) {
+            super.onBackPressed();
+        }
+    }
+
+    public static void keepWebViewAlive() {
+        final MainActivity activity = instanceRef != null ? instanceRef.get() : null;
+        if (activity == null) return;
+
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (activity.getBridge() != null && activity.getBridge().getWebView() != null) {
+                        WebView wv = activity.getBridge().getWebView();
+                        wv.resumeTimers();
+                        wv.evaluateJavascript(
+                                "window.dispatchEvent(new CustomEvent('playlish-heartbeat'));",
+                                null
+                        );
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        });
     }
 
     public static void dispatchMediaActionToWebView(final String action, final long seekPosMs) {
@@ -261,6 +296,65 @@ public class MainActivity extends BridgeActivity {
             } catch (Exception ignored) {
             }
             return array.toString();
+        }
+
+        @JavascriptInterface
+        public String findAudioUriByName(String fileName, String title) {
+            try {
+                Uri collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                String[] projection = new String[]{
+                        MediaStore.Audio.Media._ID,
+                        MediaStore.Audio.Media.DISPLAY_NAME,
+                        MediaStore.Audio.Media.TITLE
+                };
+                String selection = MediaStore.Audio.Media.DISPLAY_NAME + " = ? OR " + MediaStore.Audio.Media.TITLE + " = ?";
+                String[] selectionArgs = new String[]{
+                        fileName != null ? fileName : "",
+                        title != null ? title : ""
+                };
+
+                try (Cursor cursor = getContentResolver().query(collection, projection, selection, selectionArgs, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID);
+                        long id = cursor.getLong(idCol);
+                        Uri contentUri = ContentUris.withAppendedId(
+                                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
+                        );
+                        return contentUri.toString();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return "";
+        }
+
+        @JavascriptInterface
+        public boolean isIgnoringBatteryOptimizations() {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    if (pm != null) {
+                        return pm.isIgnoringBatteryOptimizations(getPackageName());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return true;
+        }
+
+        @JavascriptInterface
+        public void requestUnrestrictedBattery() {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                        intent.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
     }
 }

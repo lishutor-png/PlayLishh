@@ -46,12 +46,13 @@ export function getDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-// Track operations (Zero-Copy Metadata Only — Never duplicates MP3/FLAC binaries into IndexedDB)
-export async function saveTrack(track: AudioTrack): Promise<void> {
+// Track operations (Persists lightweight metadata in 'tracks' and binary File/Blob in 'audioBlobs' so songs always play after reopening the app)
+export async function saveTrack(track: AudioTrack, audioBlob?: Blob): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['tracks'], 'readwrite');
+  const stores = audioBlob ? ['tracks', 'audioBlobs'] : ['tracks'];
+  const tx = db.transaction(stores, 'readwrite');
 
-  // Strip any blobData or oversized Base64 cover before storing lightweight metadata
+  // Strip any inline blobData or oversized Base64 cover from metadata object
   const { blobData, ...trackMeta } = track;
   if (trackMeta.coverUrl && trackMeta.coverUrl.startsWith('data:') && trackMeta.coverUrl.length > 65000) {
     delete trackMeta.coverUrl;
@@ -59,24 +60,55 @@ export async function saveTrack(track: AudioTrack): Promise<void> {
 
   tx.objectStore('tracks').put(trackMeta);
 
+  const blobToSave = audioBlob || blobData;
+  if (blobToSave && stores.includes('audioBlobs')) {
+    tx.objectStore('audioBlobs').put({
+      trackId: track.id,
+      blob: blobToSave,
+      updatedAt: Date.now(),
+    });
+  }
+
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-export async function saveTracksBatch(tracksToSave: AudioTrack[]): Promise<void> {
-  if (tracksToSave.length === 0) return;
-  const db = await getDB();
-  const tx = db.transaction(['tracks'], 'readwrite');
-  const store = tx.objectStore('tracks');
+export interface TrackWithBlobItem {
+  track: AudioTrack;
+  audioBlob?: Blob;
+}
 
-  for (const track of tracksToSave) {
-    const { blobData, ...trackMeta } = track;
+export async function saveTracksBatch(
+  items: Array<AudioTrack | TrackWithBlobItem>
+): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDB();
+  const tx = db.transaction(['tracks', 'audioBlobs'], 'readwrite');
+  const trackStore = tx.objectStore('tracks');
+  const blobStore = tx.objectStore('audioBlobs');
+  const now = Date.now();
+
+  for (const item of items) {
+    const isWrapper = 'track' in item;
+    const rawTrack = isWrapper ? item.track : item;
+    const explicitBlob = isWrapper ? item.audioBlob : rawTrack.blobData;
+
+    const { blobData, ...trackMeta } = rawTrack;
     if (trackMeta.coverUrl && trackMeta.coverUrl.startsWith('data:') && trackMeta.coverUrl.length > 65000) {
       delete trackMeta.coverUrl;
     }
-    store.put(trackMeta);
+    trackStore.put(trackMeta);
+
+    const blobToPersist = explicitBlob || blobData;
+    if (blobToPersist) {
+      blobStore.put({
+        trackId: rawTrack.id,
+        blob: blobToPersist,
+        updatedAt: now,
+      });
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -86,21 +118,20 @@ export async function saveTracksBatch(tracksToSave: AudioTrack[]): Promise<void>
 }
 
 /**
- * Purges any legacy copied audio blobs and built-in default demo tracks from IndexedDB.
+ * Removes only legacy built-in demo tracks from IndexedDB while keeping all user-imported audioBlobs intact!
  */
 export async function purgeLegacyCopiedBlobs(): Promise<void> {
   try {
     const db = await getDB();
     const tx = db.transaction(['tracks', 'audioBlobs', 'playlists'], 'readwrite');
-    if (db.objectStoreNames.contains('audioBlobs')) {
-      tx.objectStore('audioBlobs').clear();
-    }
 
-    // Remove legacy built-in demo tracks & default demo playlist if present
+    // Remove legacy built-in demo tracks & default demo playlist if present (NEVER clear user's audioBlobs!)
     const defaultIds = ['track-flac-01', 'track-wav-02', 'track-alac-03', 'track-flac-04'];
     const trackStore = tx.objectStore('tracks');
+    const blobStore = tx.objectStore('audioBlobs');
     for (const id of defaultIds) {
       trackStore.delete(id);
+      blobStore.delete(id);
     }
 
     const playlistStore = tx.objectStore('playlists');
@@ -171,9 +202,41 @@ export async function getAllTracks(): Promise<AudioTrack[]> {
   });
 }
 
-export async function getTrackBlob(_trackId: string): Promise<Blob | null> {
-  // Zero-copy architecture: audio binaries are streamed directly from file/URI, not copied into DB
-  return null;
+export async function getTrackBlob(trackId: string): Promise<Blob | null> {
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('audioBlobs', 'readonly');
+      const request = tx.objectStore('audioBlobs').get(trackId);
+      request.onsuccess = () => {
+        if (request.result && request.result.blob) {
+          resolve(request.result.blob as Blob);
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function getAllStoredBlobTrackIds(): Promise<Set<string>> {
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('audioBlobs', 'readonly');
+      const request = tx.objectStore('audioBlobs').getAllKeys();
+      request.onsuccess = () => {
+        const keys = (request.result || []).map((k) => String(k));
+        resolve(new Set(keys));
+      };
+      request.onerror = () => resolve(new Set());
+    });
+  } catch {
+    return new Set();
+  }
 }
 
 export async function updateTrackLyrics(trackId: string, lyrics: string): Promise<void> {

@@ -22,6 +22,11 @@ import {
 } from 'lucide-react';
 import { AudioSettings, SleepTimerConfig } from '../types';
 import { audioEngine } from '../services/audioEngine';
+import {
+  isAndroidBatteryUnrestricted,
+  requestAndroidUnrestrictedBattery,
+} from '../services/mediaSession';
+import { isNativeAndroidApp } from '../services/fileRegistry';
 import { AppLogo } from './AppLogo';
 
 interface SettingsViewProps {
@@ -40,6 +45,17 @@ export function SettingsView({
   onResetAllSettings,
 }: SettingsViewProps) {
   const [showConfirmOverride, setShowConfirmOverride] = useState(false);
+  const [batteryUnrestricted, setBatteryUnrestricted] = useState(() =>
+    isAndroidBatteryUnrestricted()
+  );
+  const isAndroid = isNativeAndroidApp();
+
+  const handleRequestBatteryExemption = () => {
+    requestAndroidUnrestrictedBattery();
+    setTimeout(() => {
+      setBatteryUnrestricted(isAndroidBatteryUnrestricted());
+    }, 1500);
+  };
 
   const handleSafeLimitChange = (val: number) => {
     const limit = val / 100;
@@ -321,33 +337,63 @@ export function SettingsView({
         </button>
       </div>
 
-      {/* SECTION 4: SYSTEM MEDIA CONTROL & PWA LAUNCHER STATUS */}
+      {/* SECTION 4: ANTI-1-HOUR STOP & SYSTEM MEDIA CONTROL */}
       <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-2xl space-y-4 backdrop-blur-2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider text-[10px]">
             <Radio className="w-4 h-4 text-[#F27D26]" />
-            Media Kontrol & Notifikasi Android Native
+            Proteksi Non-Stop (Anti-Berhenti &gt;1 Jam)
           </div>
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Native MediaSession v2.0
+            Keep-Alive Aktif
           </span>
         </div>
 
         <p className="text-xs text-white/70 leading-relaxed">
-          Sistem kontrol media telah dibangun ulang dengan <span className="text-[#F27D26] font-semibold">PlayLishMediaService (Android ForegroundService &amp; MediaStyle Notification)</span> serta <span className="text-emerald-400 font-semibold">PARTIAL_WAKE_LOCK</span> agar kontrol lagu selalu muncul di panel notifikasi Android, layar kunci, serta tidak pernah keluar/crash meskipun berjalan berjam-jam.
+          Dilengkapi proteksi berlapis agar pemutaran musik tetap berjalan stabil berjam-jam tanpa berhenti sendiri di latar belakang sekaligus menjaga lagu tetap tersimpan permanen saat keluar aplikasi:
         </p>
 
-        <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-2 text-[11px]">
+        <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5 space-y-2.5 text-[11px]">
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span><strong>Zero-Copy Direct Stream:</strong> Lagu MP3/FLAC diputar langsung dari memori HP tanpa disalin ke database aplikasi (0 MB duplikasi penyimpanan).</span>
+            <span>
+              <strong>Single-Buffer RAM Guard:</strong> Semua lagu disimpan permanen di database lokal (tidak perlu dimuat ulang saat keluar aplikasi), namun hanya <strong>1 lagu aktif</strong> yang dimuat ke RAM pada satu waktu dan buffer dekoder otomatis dibersihkan setiap ganti lagu.
+            </span>
           </div>
           <div className="flex items-start gap-2 text-white/80">
             <CheckCircle2 className="w-4 h-4 text-[#F27D26] shrink-0 mt-0.5" />
-            <span><strong>Proteksi Latar Belakang Non-Stop:</strong> Dilengkapi WakeLock &amp; WebView Timer Keep-Alive untuk mencegah sistem Android menutup paksa aplikasi setelah pemakaian di atas 1 jam.</span>
+            <span>
+              <strong>Heartbeat 25 Detik, WebLock &amp; WakeLock:</strong> Service latar belakang memperbarui <em>CPU WakeLock</em>, <em>AudioFocus</em>, dan <em>WebView Timers</em> setiap 25 detik agar sistem tidak membekukan aplikasi setelah pemakaian di atas 1 jam.
+            </span>
           </div>
         </div>
+
+        {isAndroid && (
+          <div className="p-3.5 rounded-2xl bg-[#F27D26]/10 border border-[#F27D26]/30 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-white">
+                Izin Baterai Tanpa Pembatasan (Android Doze)
+              </div>
+              <p className="text-[11px] text-white/60 mt-0.5">
+                {batteryUnrestricted
+                  ? 'Aktif: Sistem Android diizinkan memutar musik tanpa batas waktu di layar mati.'
+                  : 'Matikan penghemat baterai untuk PlayLish agar Android tidak menghentikan musik setelah 1 jam.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRequestBatteryExemption}
+              className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95 ${
+                batteryUnrestricted
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-[#F27D26] hover:bg-[#ff8a3d] text-white shadow-lg shadow-[#F27D26]/25'
+              }`}
+            >
+              {batteryUnrestricted ? 'Sudah Aktif' : 'Izinkan Non-Stop'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* SECTION 5: ANDROID NATIVE APK BUILD STATUS & GUIDE */}
@@ -413,8 +459,8 @@ export function SettingsView({
             <span className="text-white font-semibold mt-0.5 block">Web Audio API Pipeline</span>
           </div>
           <div className="p-2.5 rounded-2xl bg-black/30 border border-white/5">
-            <span className="text-[10px] text-white/40 uppercase font-mono block">Sistem Baca File</span>
-            <span className="text-emerald-400 font-semibold mt-0.5 block">Zero-Copy Direct Stream</span>
+            <span className="text-[10px] text-white/40 uppercase font-mono block">Manajemen Memori</span>
+            <span className="text-emerald-400 font-semibold mt-0.5 block">Single-Buffer Permanen</span>
           </div>
         </div>
       </div>

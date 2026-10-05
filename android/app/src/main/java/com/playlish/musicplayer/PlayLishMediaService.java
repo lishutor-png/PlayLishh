@@ -10,11 +10,16 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 
 public class PlayLishMediaService extends Service {
@@ -30,7 +35,10 @@ public class PlayLishMediaService extends Service {
 
     private MediaSession mediaSession;
     private PowerManager.WakeLock wakeLock;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
     private Bitmap cachedAppIcon;
+    private final Handler heartbeatHandler = new Handler(Looper.getMainLooper());
 
     private String currentTitle = "PlayLish Hi-Res Audio";
     private String currentArtist = "PlayLish";
@@ -39,14 +47,71 @@ public class PlayLishMediaService extends Service {
     private long currentPositionMs = 0L;
     private long currentDurationMs = 0L;
 
+    // 25-second native heartbeat keeps CPU WakeLock & WebView JS timers alive indefinitely (>1 hour non-stop)
+    private final Runnable keepAliveRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (currentIsPlaying) {
+                acquireWakeLock();
+                MainActivity.keepWebViewAlive();
+                heartbeatHandler.postDelayed(this, 25000L);
+            }
+        }
+    };
+
+    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = new AudioManager.OnAudioFocusChangeListener() {
+        @Override
+        public void onAudioFocusChange(int focusChange) {
+            if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                MainActivity.dispatchMediaActionToWebView("pause", -1);
+            }
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         createNotificationChannel();
         initMediaSession();
         initWakeLock();
         try {
             cachedAppIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void requestAudioFocusIfNeeded() {
+        try {
+            if (audioManager == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest == null) {
+                    AudioAttributes attrs = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build();
+                    audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                            .setAudioAttributes(attrs)
+                            .setAcceptsDelayedFocusGain(true)
+                            .setOnAudioFocusChangeListener(audioFocusListener)
+                            .build();
+                }
+                audioManager.requestAudioFocus(audioFocusRequest);
+            } else {
+                audioManager.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void abandonAudioFocusIfNeeded() {
+        try {
+            if (audioManager == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+                audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            } else {
+                audioManager.abandonAudioFocus(audioFocusListener);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -135,6 +200,8 @@ public class PlayLishMediaService extends Service {
                     MainActivity.dispatchMediaActionToWebView("prev", -1);
                     return START_STICKY;
                 case ACTION_STOP_SERVICE:
+                    heartbeatHandler.removeCallbacks(keepAliveRunnable);
+                    abandonAudioFocusIfNeeded();
                     releaseWakeLock();
                     stopForeground(true);
                     stopSelf();
@@ -156,8 +223,11 @@ public class PlayLishMediaService extends Service {
             }
         }
 
+        heartbeatHandler.removeCallbacks(keepAliveRunnable);
         if (currentIsPlaying) {
+            requestAudioFocusIfNeeded();
             acquireWakeLock();
+            heartbeatHandler.postDelayed(keepAliveRunnable, 25000L);
         } else {
             releaseWakeLock();
         }
@@ -303,6 +373,8 @@ public class PlayLishMediaService extends Service {
 
     @Override
     public void onDestroy() {
+        heartbeatHandler.removeCallbacks(keepAliveRunnable);
+        abandonAudioFocusIfNeeded();
         releaseWakeLock();
         if (mediaSession != null) {
             mediaSession.setActive(false);
